@@ -2,8 +2,6 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use std::fmt::Write;
 
-use crate::HostPort;
-
 pub struct MyHttpRequest {
     headers: Vec<u8>,
     body: Bytes,
@@ -11,23 +9,24 @@ pub struct MyHttpRequest {
 
 impl MyHttpRequest {
     pub async fn new(req: hyper::Request<Full<Bytes>>) -> Self {
+        let (parts, body) = req.into_parts();
+
         let mut headers = String::new();
 
         write!(
             &mut headers,
             "{} {} {:?}\r\n",
-            req.method(),
-            req.uri()
+            parts.method,
+            parts
+                .uri
                 .path_and_query()
                 .map(|pq| pq.as_str())
                 .unwrap_or("/"),
-            req.version()
+            parts.version
         )
         .unwrap();
 
-        let (parts, body) = req.into_parts();
-
-        for (name, value) in parts.get_headers() {
+        for (name, value) in parts.headers.iter() {
             write!(&mut headers, "{}: {}\r\n", name, value.to_str().unwrap()).unwrap();
         }
 

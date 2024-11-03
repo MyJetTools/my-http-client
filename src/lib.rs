@@ -28,9 +28,6 @@ pub use my_http_client_connection_context::*;
 mod my_http_request;
 pub use my_http_request::*;
 
-mod host_port;
-pub use host_port::*;
-
 pub mod utils;
 
 #[derive(Debug)]
