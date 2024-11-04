@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use http::Method;
 
-use crate::MyHttpRequest;
+use super::MyHttpRequest;
 
 const CL_CR: &[u8] = b"\r\n";
 

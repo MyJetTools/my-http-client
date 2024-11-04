@@ -3,7 +3,7 @@ use futures::SinkExt;
 use http::Response;
 use http_body_util::{combinators::BoxBody, BodyExt, StreamBody};
 
-use crate::{HttpParseError, TcpBuffer};
+use super::super::*;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ChunksReadingMode {

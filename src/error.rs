@@ -7,17 +7,10 @@ pub enum MyHttpClientError {
     Disconnected,
     Disposed,
     RequestTimeout(Duration),
-    InvalidHttpPayload(String),
+    CanNotExecuteRequest(String),
 }
 
 impl MyHttpClientError {
-    pub fn is_invalid_http_payload(&self) -> bool {
-        match self {
-            MyHttpClientError::InvalidHttpPayload(_) => true,
-            _ => false,
-        }
-    }
-
     pub fn is_web_socket_upgraded(&self) -> bool {
         match self {
             MyHttpClientError::UpgradedToWebSocket => true,

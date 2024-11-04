@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::TcpBuffer;
+use super::TcpBuffer;
 
 use super::{BodyReader, HeadersReader, HttpTask, MyHttpClientInner};
 use tokio::io::{AsyncReadExt, ReadHalf};

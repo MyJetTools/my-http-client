@@ -1,5 +1,7 @@
 use bytes::Bytes;
+use http::Response;
 use http_body_util::{combinators::BoxBody, BodyExt, Full};
+use hyper::body::Incoming;
 
 pub fn into_full_body_response(
     response: hyper::Response<Full<Bytes>>,
@@ -16,4 +18,12 @@ pub fn into_empty_body(
     let body = Full::new(Bytes::new());
     let body = body.map_err(|e| e.to_string()).boxed();
     builder.body(body).unwrap()
+}
+
+pub fn from_incoming_body(response: Response<Incoming>) -> Response<BoxBody<Bytes, String>> {
+    let (parts, body) = response.into_parts();
+
+    let box_body = body.map_err(|e| e.to_string()).boxed();
+
+    Response::from_parts(parts, box_body)
 }

@@ -7,9 +7,11 @@ use tokio::{
     sync::Mutex,
 };
 
+use crate::MyHttpClientError;
+
 use super::{
     write_loop::WriteLoopEvent, HttpAwaiterTask, HttpAwaitingTask, MyHttpClientConnectionContext,
-    MyHttpClientError, MyHttpRequest, QueueOfRequests,
+    MyHttpRequest, QueueOfRequests,
 };
 
 pub enum WritePartState<

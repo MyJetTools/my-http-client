@@ -1,7 +1,7 @@
 use http::HeaderValue;
 use rust_extensions::slice_of_u8_utils::SliceOfU8Ext;
 
-use crate::{DetectedBodySize, HttpParseError};
+use crate::http1::{DetectedBodySize, HttpParseError};
 
 pub fn parse_http_header(
     mut builder: http::response::Builder,

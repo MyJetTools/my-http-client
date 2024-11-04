@@ -5,7 +5,7 @@ use http_body_util::combinators::BoxBody;
 use rust_extensions::{TaskCompletion, TaskCompletionAwaiter};
 use tokio::{io::ReadHalf, sync::Mutex};
 
-use super::MyHttpClientError;
+use crate::MyHttpClientError;
 
 pub type HttpAwaitingTask<TStream> = TaskCompletion<HttpTask<TStream>, MyHttpClientError>;
 

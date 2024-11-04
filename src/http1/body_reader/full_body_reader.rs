@@ -1,8 +1,9 @@
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
 
+use crate::http1::{HttpParseError, TcpBuffer};
+
 use super::*;
-use crate::{HttpParseError, TcpBuffer};
 
 #[derive(Debug)]
 pub struct FullBodyReader {

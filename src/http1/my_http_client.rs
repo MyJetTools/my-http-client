@@ -5,9 +5,11 @@ use http_body_util::combinators::BoxBody;
 use std::sync::{atomic::AtomicU64, Arc};
 use tokio::io::{ReadHalf, WriteHalf};
 
-use crate::{HttpTask, IntoMyHttpRequest, MyHttpRequest};
+use crate::{MyHttpClientConnector, MyHttpClientError};
 
-use super::{MyHttpClientConnector, MyHttpClientError, MyHttpClientInner};
+use super::{HttpTask, IntoMyHttpRequest, MyHttpRequest};
+
+use super::MyHttpClientInner;
 
 pub struct MyHttpClient<
     TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,

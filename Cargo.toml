@@ -12,6 +12,8 @@ async-trait = "*"
 hyper-tungstenite = "*"
 http = "*"
 
+hyper-util = { version = "*", features = ["tokio", "server", "http2"] }
+
 futures = "*"
 
 hyper = { version = "*", features = ["full"] }

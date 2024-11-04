@@ -1,6 +1,6 @@
 use rust_extensions::StrOrString;
 
-use super::MyHttpClientError;
+use crate::MyHttpClientError;
 
 #[async_trait::async_trait]
 pub trait MyHttpClientConnector<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite> {
