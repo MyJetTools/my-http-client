@@ -245,6 +245,9 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
 
         match &mut *state {
             WritePartState::Connected(context) => {
+                if let Some(ctx) = context.write_stream.as_mut() {
+                    let _ = ctx.shutdown().await;
+                }
                 context.queue_of_requests.notify_connection_lost().await;
             }
             _ => {}
