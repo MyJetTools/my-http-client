@@ -169,6 +169,8 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
                 }
 
                 let result = context.write_stream.take();
+                let _ = context.write_signal.send(WriteLoopEvent::Close).await;
+
                 *state = WritePartState::UpgradedToWebSocket;
 
                 Ok(result.unwrap())
