@@ -27,6 +27,8 @@ pub use my_http_client_connection_context::*;
 
 mod my_http_request;
 pub use my_http_request::*;
+mod my_http_request_builder;
+pub use my_http_request_builder::*;
 
 pub mod utils;
 

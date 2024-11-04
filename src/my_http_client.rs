@@ -1,11 +1,13 @@
 use bytes::Bytes;
 
-use http_body_util::{combinators::BoxBody, Full};
+use http_body_util::combinators::BoxBody;
 
 use std::sync::{atomic::AtomicU64, Arc};
 use tokio::io::{ReadHalf, WriteHalf};
 
-use super::{MyHttpClientConnector, MyHttpClientError, MyHttpClientInner, MyHttpRequest};
+use crate::IntoMyHttpRequest;
+
+use super::{MyHttpClientConnector, MyHttpClientError, MyHttpClientInner};
 
 pub struct MyHttpClient<
     TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
@@ -80,9 +82,9 @@ impl<
 
     pub async fn send(
         &self,
-        req: hyper::Request<Full<Bytes>>,
+        req: impl IntoMyHttpRequest,
     ) -> Result<hyper::Response<BoxBody<Bytes, String>>, MyHttpClientError> {
-        let req = MyHttpRequest::new(req).await;
+        let req = req.into_request().await;
 
         loop {
             match self.inner.send(&req).await {
@@ -109,10 +111,10 @@ impl<
 
     pub async fn upgrade_to_web_socket(
         &self,
-        req: hyper::Request<Full<Bytes>>,
+        req: impl IntoMyHttpRequest,
         reunite: impl Fn(ReadHalf<TStream>, WriteHalf<TStream>) -> TStream,
     ) -> Result<(TStream, hyper::Response<BoxBody<Bytes, String>>), MyHttpClientError> {
-        let req = MyHttpRequest::new(req).await;
+        let req = req.into_request().await;
 
         loop {
             match self.inner.send(&req).await {
