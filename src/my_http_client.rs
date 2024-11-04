@@ -99,7 +99,6 @@ impl<
         request_timeout: std::time::Duration,
         handle_ok: &impl Fn(HttpTask<TStream>, u64) -> TResponse,
     ) -> Result<TResponse, MyHttpClientError> {
-        let mut had_time_out_retry = false;
         loop {
             let err = match self.inner.send(req).await {
                 Ok((awaiter, connection_id)) => {
@@ -108,14 +107,7 @@ impl<
                     let result = tokio::time::timeout(request_timeout, await_feature).await;
 
                     if result.is_err() {
-                        if had_time_out_retry {
-                            return Err(MyHttpClientError::RequestTimeout(request_timeout));
-                        } else {
-                            had_time_out_retry = true;
-                            self.inner.disconnect(connection_id).await;
-                            self.connect().await?;
-                            continue;
-                        }
+                        return Err(MyHttpClientError::RequestTimeout(request_timeout));
                     }
 
                     let result = result.unwrap();
