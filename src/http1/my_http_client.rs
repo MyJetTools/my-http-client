@@ -30,16 +30,8 @@ impl<
     > MyHttpClient<TStream, TConnector>
 {
     pub fn new(connector: TConnector) -> Self {
-        let (sender, receiver) = tokio::sync::mpsc::channel(1024);
-        let inner = Arc::new(MyHttpClientInner::new(sender));
-
-        let inner_cloned = inner.clone();
-        tokio::spawn(async move {
-            super::write_loop::write_loop(inner_cloned, receiver).await;
-        });
-
         Self {
-            inner,
+            inner: Arc::new(MyHttpClientInner::new()),
             connector,
             connection_id: AtomicU64::new(0),
             send_to_socket_timeout: std::time::Duration::from_secs(30),
@@ -69,8 +61,15 @@ impl<
 
         let (reader, writer) = tokio::io::split(stream);
 
+        let (sender, receiver) = tokio::sync::mpsc::channel(1024);
+
         self.inner
-            .new_connection(current_connection_id, writer, self.send_to_socket_timeout)
+            .new_connection(
+                current_connection_id,
+                writer,
+                sender,
+                self.send_to_socket_timeout,
+            )
             .await;
 
         let debug = self.connector.is_debug();
@@ -90,6 +89,11 @@ impl<
                 read_from_stream_timeout,
             )
             .await;
+        });
+
+        let inner_cloned = self.inner.clone();
+        tokio::spawn(async move {
+            super::write_loop::write_loop(inner_cloned, receiver).await;
         });
 
         Ok(())
@@ -170,18 +174,5 @@ impl<
                 return Err(err);
             }
         }
-    }
-}
-
-impl<
-        TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
-        TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
-    > Drop for MyHttpClient<TStream, TConnector>
-{
-    fn drop(&mut self) {
-        let inner = self.inner.clone();
-        tokio::spawn(async move {
-            inner.dispose().await;
-        });
     }
 }

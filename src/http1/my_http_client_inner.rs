@@ -87,17 +87,15 @@ pub struct MyHttpClientInner<
 > {
     connected: UnsafeValue<bool>,
     state: Mutex<WritePartState<TStream>>,
-    write_signal: tokio::sync::mpsc::Sender<WriteLoopEvent>,
 }
 
 impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static>
     MyHttpClientInner<TStream>
 {
-    pub fn new(write_signal: tokio::sync::mpsc::Sender<WriteLoopEvent>) -> Self {
+    pub fn new() -> Self {
         Self {
             state: Mutex::new(WritePartState::Disconnected),
             connected: UnsafeValue::new(true),
-            write_signal,
         }
     }
 
@@ -105,6 +103,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         &self,
         connection_id: u64,
         write_stream: WriteHalf<TStream>,
+        write_signal: tokio::sync::mpsc::Sender<WriteLoopEvent>,
         send_to_socket_timeout: std::time::Duration,
     ) {
         let mut state = self.state.lock().await;
@@ -115,6 +114,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             connection_id,
             queue_of_requests: QueueOfRequests::new(),
             send_to_socket_timeout,
+            write_signal,
         });
     }
 
@@ -148,7 +148,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             }
         }
 
-        let _ = self
+        let _ = connection_context
             .write_signal
             .send(WriteLoopEvent::Flush(connection_context.connection_id))
             .await;
@@ -248,6 +248,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         match &mut *state {
             WritePartState::Connected(context) => {
                 if let Some(ctx) = context.write_stream.as_mut() {
+                    let _ = context.write_signal.send(WriteLoopEvent::Close).await;
                     let _ = ctx.shutdown().await;
                 }
                 context.queue_of_requests.notify_connection_lost().await;
@@ -267,6 +268,5 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         }
 
         *state = WritePartState::Disposed;
-        let _ = self.write_signal.send(WriteLoopEvent::Close).await;
     }
 }
