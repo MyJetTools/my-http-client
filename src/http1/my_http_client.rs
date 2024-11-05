@@ -7,7 +7,7 @@ use tokio::io::{ReadHalf, WriteHalf};
 
 use crate::{MyHttpClientConnector, MyHttpClientError};
 
-use super::{HttpTask, IntoMyHttpRequest, MyHttpClientMetrics, MyHttpRequest};
+use super::{HttpTask, IntoMyHttpRequest, MyHttpClientDisconnection, MyHttpRequest};
 
 use super::MyHttpClientInner;
 
@@ -32,10 +32,16 @@ impl<
     pub fn new(
         name: String,
         connector: TConnector,
-        metrics: Arc<dyn MyHttpClientMetrics + Send + Sync + 'static>,
+        #[cfg(feature = "metrics")] metrics: Arc<
+            dyn super::MyHttpClientMetrics + Send + Sync + 'static,
+        >,
     ) -> Self {
         Self {
-            inner: Arc::new(MyHttpClientInner::new(name, metrics)),
+            inner: Arc::new(MyHttpClientInner::new(
+                name,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )),
             connector,
             connection_id: AtomicU64::new(0),
             send_to_socket_timeout: std::time::Duration::from_secs(30),
@@ -157,7 +163,14 @@ impl<
         req: impl IntoMyHttpRequest,
         request_timeout: std::time::Duration,
         reunite: impl Fn(ReadHalf<TStream>, WriteHalf<TStream>) -> TStream,
-    ) -> Result<(TStream, hyper::Response<BoxBody<Bytes, String>>), MyHttpClientError> {
+    ) -> Result<
+        (
+            TStream,
+            hyper::Response<BoxBody<Bytes, String>>,
+            MyHttpClientDisconnection<TStream>,
+        ),
+        MyHttpClientError,
+    > {
         let req = req.into_request().await;
 
         let (response, read_part, connection_id) = self
@@ -171,7 +184,11 @@ impl<
         match self.inner.upgrade_to_websocket(connection_id).await {
             Ok(write_part) => {
                 let stream = reunite(read_part, write_part);
-                return Ok((stream, response));
+                return Ok((
+                    stream,
+                    response,
+                    MyHttpClientDisconnection::new(self.inner.clone(), connection_id),
+                ));
             }
             Err(err) => {
                 self.inner.disconnect(connection_id).await;

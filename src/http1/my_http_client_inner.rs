@@ -7,11 +7,11 @@ use tokio::{
     sync::Mutex,
 };
 
-use crate::MyHttpClientError;
+use crate::{MyHttpClientDisconnect, MyHttpClientError};
 
 use super::{
     write_loop::WriteLoopEvent, HttpAwaiterTask, HttpAwaitingTask, MyHttpClientConnectionContext,
-    MyHttpClientMetrics, MyHttpRequest, QueueOfRequests,
+    MyHttpRequest, QueueOfRequests,
 };
 
 pub enum WritePartState<
@@ -87,7 +87,8 @@ pub struct MyHttpClientInner<
 > {
     connected: UnsafeValue<bool>,
     state: Mutex<WritePartState<TStream>>,
-    pub metrics: Arc<dyn MyHttpClientMetrics + Send + Sync + 'static>,
+    #[cfg(feature = "metrics")]
+    pub metrics: Arc<dyn super::MyHttpClientMetrics + Send + Sync + 'static>,
     pub name: String,
 }
 
@@ -96,11 +97,14 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
 {
     pub fn new(
         name: String,
-        metrics: Arc<dyn MyHttpClientMetrics + Send + Sync + 'static>,
+        #[cfg(feature = "metrics")] metrics: Arc<
+            dyn super::MyHttpClientMetrics + Send + Sync + 'static,
+        >,
     ) -> Self {
         Self {
             state: Mutex::new(WritePartState::Disconnected),
             connected: UnsafeValue::new(true),
+            #[cfg(feature = "metrics")]
             metrics,
             name,
         }
@@ -124,6 +128,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             write_signal,
         });
 
+        #[cfg(feature = "metrics")]
         self.metrics.tcp_connect(&self.name);
     }
 
@@ -255,7 +260,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         if !state.is_active_connection(connection_id) {
             return;
         }
-
+        #[cfg(feature = "metrics")]
         self.metrics.tcp_disconnect(&self.name);
 
         match &mut *state {
@@ -281,5 +286,36 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         }
 
         *state = WritePartState::Disposed;
+    }
+}
+
+pub struct MyHttpClientDisconnection<
+    TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
+> {
+    inner: Arc<MyHttpClientInner<TStream>>,
+    connection_id: u64,
+}
+
+impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static>
+    MyHttpClientDisconnection<TStream>
+{
+    pub fn new(inner: Arc<MyHttpClientInner<TStream>>, connection_id: u64) -> Self {
+        Self {
+            inner,
+            connection_id,
+        }
+    }
+}
+
+impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static>
+    MyHttpClientDisconnect for MyHttpClientDisconnection<TStream>
+{
+    fn disconnect(&self) {
+        let inner = self.inner.clone();
+        let connection_id = self.connection_id;
+
+        tokio::spawn(async move {
+            inner.disconnect(connection_id).await;
+        });
     }
 }

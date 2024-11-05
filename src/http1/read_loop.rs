@@ -27,7 +27,7 @@ pub async fn read_loop<
     let mut read_mode = ReadModel::Header(HeadersReader::new());
 
     let mut do_read_to_buffer = true;
-
+    #[cfg(feature = "metrics")]
     inner.metrics.read_thread_start(&inner.name);
 
     while inner.is_my_connection_id(connection_id).await {
@@ -140,7 +140,7 @@ pub async fn read_loop<
             }
         }
     }
-
+    #[cfg(feature = "metrics")]
     inner.metrics.read_thread_stop(&inner.name);
 
     if debug {

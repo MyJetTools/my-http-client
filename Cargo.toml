@@ -3,6 +3,11 @@ name = "my-http-client"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+metrics = []
+
+
 [dependencies]
 tokio = { version = "*", features = ["full"] }
 bytes = "*"
