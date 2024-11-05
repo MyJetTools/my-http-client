@@ -264,11 +264,8 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
                     let _ = ctx.shutdown().await;
                 }
                 context.queue_of_requests.notify_connection_lost().await;
-
-                println!("[{}] Disconnected.", context.connection_id);
             }
             WritePartState::UpgradedToWebSocket(context) => {
-                println!("[{}] Disconnected as websocket.", context.connection_id);
                 #[cfg(feature = "metrics")]
                 self.metrics.tcp_disconnect(&self.name);
             }

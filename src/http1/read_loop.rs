@@ -204,13 +204,6 @@ async fn read_to_buffer<TStream: tokio::io::AsyncRead>(
         return None;
     }
 
-    /*
-    println!(
-        "Read: [{}]",
-        std::str::from_utf8(&write_buf[..result]).unwrap()
-    );
-     */
-
     tcp_buffer.add_read_amount(result);
 
     Some(result)
