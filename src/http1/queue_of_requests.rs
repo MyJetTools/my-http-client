@@ -62,7 +62,7 @@ impl<TStream: tokio::io::AsyncRead + Send + Sync + 'static> QueueOfRequests<TStr
     pub async fn notify_connection_lost(&self) {
         let mut queue = self.queue.lock().await;
         while let Some(mut task) = queue.pop_front() {
-            task.set_error(MyHttpClientError::Disconnected);
+            let _ = task.try_set_error(MyHttpClientError::Disconnected);
         }
     }
 }
