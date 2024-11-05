@@ -44,7 +44,7 @@ impl<
         self.connect_timeout = connection_timeout;
     }
 
-    pub async fn send(
+    pub async fn do_request(
         &self,
         req: hyper::Request<Full<Bytes>>,
         request_timeout: Duration,
