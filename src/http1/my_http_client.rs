@@ -30,7 +30,6 @@ impl<
     > MyHttpClient<TStream, TConnector>
 {
     pub fn new(
-        name: String,
         connector: TConnector,
         #[cfg(feature = "metrics")] metrics: Arc<
             dyn super::MyHttpClientMetrics + Send + Sync + 'static,
@@ -38,7 +37,7 @@ impl<
     ) -> Self {
         Self {
             inner: Arc::new(MyHttpClientInner::new(
-                name,
+                connector.get_remote_host().as_str().to_string(),
                 #[cfg(feature = "metrics")]
                 metrics,
             )),
