@@ -60,7 +60,7 @@ impl<
             send_to_socket_timeout: std::time::Duration::from_secs(30),
             connect_timeout: std::time::Duration::from_secs(5),
             read_from_stream_timeout: std::time::Duration::from_secs(120),
-            read_buffer_size: 1024 * 1024,
+            read_buffer_size: 1024 * 512,
         };
 
         #[cfg(feature = "metrics")]
