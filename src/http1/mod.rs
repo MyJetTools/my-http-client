@@ -26,6 +26,9 @@ pub use body_reader::*;
 mod headers_reader;
 pub use headers_reader::*;
 
+mod my_http_client_metrics;
+pub use my_http_client_metrics::*;
+
 #[derive(Debug)]
 pub enum HttpParseError {
     GetMoreData,

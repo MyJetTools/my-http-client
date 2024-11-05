@@ -10,17 +10,20 @@ pub enum WriteLoopEvent {
 pub async fn write_loop<
     TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
 >(
-    write_part: Arc<MyHttpClientInner<TStream>>,
+    inner: Arc<MyHttpClientInner<TStream>>,
     mut receiver: tokio::sync::mpsc::Receiver<WriteLoopEvent>,
 ) {
+    inner.metrics.write_thread_start(&inner.name);
     while let Some(event) = receiver.recv().await {
         match event {
             WriteLoopEvent::Flush(connection_id) => {
-                write_part.flush(connection_id).await;
+                inner.flush(connection_id).await;
             }
             WriteLoopEvent::Close => {
                 break;
             }
         }
     }
+
+    inner.metrics.write_thread_stop(&inner.name);
 }

@@ -7,7 +7,7 @@ use tokio::io::{ReadHalf, WriteHalf};
 
 use crate::{MyHttpClientConnector, MyHttpClientError};
 
-use super::{HttpTask, IntoMyHttpRequest, MyHttpRequest};
+use super::{HttpTask, IntoMyHttpRequest, MyHttpClientMetrics, MyHttpRequest};
 
 use super::MyHttpClientInner;
 
@@ -29,9 +29,13 @@ impl<
         TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
     > MyHttpClient<TStream, TConnector>
 {
-    pub fn new(connector: TConnector) -> Self {
+    pub fn new(
+        name: String,
+        connector: TConnector,
+        metrics: Arc<dyn MyHttpClientMetrics + Send + Sync + 'static>,
+    ) -> Self {
         Self {
-            inner: Arc::new(MyHttpClientInner::new()),
+            inner: Arc::new(MyHttpClientInner::new(name, metrics)),
             connector,
             connection_id: AtomicU64::new(0),
             send_to_socket_timeout: std::time::Duration::from_secs(30),

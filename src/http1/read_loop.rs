@@ -28,10 +28,13 @@ pub async fn read_loop<
 
     let mut do_read_to_buffer = true;
 
+    inner.metrics.read_thread_start(&inner.name);
+
     while inner.is_my_connection_id(connection_id).await {
         if do_read_to_buffer {
             let result = read_to_buffer(&mut read, &mut tcp_buffer, debug, read_time_out).await;
             if result.is_none() {
+                inner.disconnect(connection_id).await;
                 break;
             }
 
@@ -51,7 +54,7 @@ pub async fn read_loop<
                         if debug {
                             println!("Http parser error: {}", err);
                         }
-
+                        inner.disconnect(connection_id).await;
                         break;
                     }
                 },
@@ -81,7 +84,7 @@ pub async fn read_loop<
                                     if debug {
                                         println!("Http parser error: {}", err);
                                     }
-
+                                    inner.disconnect(connection_id).await;
                                     break;
                                 }
                             },
@@ -94,9 +97,9 @@ pub async fn read_loop<
                                 request.set_ok(HttpTask::Response(response));
                             } else {
                                 if debug {
-                                    println!("No request for response during reading chinked response. Looks like it was a disconnect");
+                                    println!("No request for response during reading chunked response. Looks like it was a disconnect");
                                 }
-
+                                inner.disconnect(connection_id).await;
                                 break;
                             }
                         }
@@ -115,7 +118,7 @@ pub async fn read_loop<
                                     if debug {
                                         println!("Http parser error: {}", err);
                                     }
-
+                                    inner.disconnect(connection_id).await;
                                     break;
                                 }
                             },
@@ -131,14 +134,15 @@ pub async fn read_loop<
                             });
                         }
 
-                        return;
+                        break;
                     }
                 }
             }
         }
     }
 
-    inner.disconnect(connection_id).await;
+    inner.metrics.read_thread_stop(&inner.name);
+
     if debug {
         println!("Http client read task is done");
     }

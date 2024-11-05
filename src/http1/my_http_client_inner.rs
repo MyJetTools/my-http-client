@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use rust_extensions::{TaskCompletion, UnsafeValue};
 
@@ -11,7 +11,7 @@ use crate::MyHttpClientError;
 
 use super::{
     write_loop::WriteLoopEvent, HttpAwaiterTask, HttpAwaitingTask, MyHttpClientConnectionContext,
-    MyHttpRequest, QueueOfRequests,
+    MyHttpClientMetrics, MyHttpRequest, QueueOfRequests,
 };
 
 pub enum WritePartState<
@@ -87,15 +87,22 @@ pub struct MyHttpClientInner<
 > {
     connected: UnsafeValue<bool>,
     state: Mutex<WritePartState<TStream>>,
+    pub metrics: Arc<dyn MyHttpClientMetrics + Send + Sync + 'static>,
+    pub name: String,
 }
 
 impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static>
     MyHttpClientInner<TStream>
 {
-    pub fn new() -> Self {
+    pub fn new(
+        name: String,
+        metrics: Arc<dyn MyHttpClientMetrics + Send + Sync + 'static>,
+    ) -> Self {
         Self {
             state: Mutex::new(WritePartState::Disconnected),
             connected: UnsafeValue::new(true),
+            metrics,
+            name,
         }
     }
 
@@ -116,6 +123,8 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             send_to_socket_timeout,
             write_signal,
         });
+
+        self.metrics.tcp_connect(&self.name);
     }
 
     pub async fn is_my_connection_id(&self, connection_id: u64) -> bool {
@@ -246,6 +255,8 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         if !state.is_active_connection(connection_id) {
             return;
         }
+
+        self.metrics.tcp_disconnect(&self.name);
 
         match &mut *state {
             WritePartState::Connected(context) => {
