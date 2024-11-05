@@ -164,7 +164,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
 
         let _ = connection_context
             .write_signal
-            .send(WriteLoopEvent::Flush(connection_context.connection_id))
+            .send(WriteLoopEvent::Flush)
             .await;
 
         Ok((awaiter, connection_context.connection_id))

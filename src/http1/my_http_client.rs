@@ -45,9 +45,13 @@ impl<
             connection_id: AtomicU64::new(0),
             send_to_socket_timeout: std::time::Duration::from_secs(30),
             connect_timeout: std::time::Duration::from_secs(5),
-            read_from_stream_timeout: std::time::Duration::from_secs(30),
+            read_from_stream_timeout: std::time::Duration::from_secs(120),
             read_buffer_size: 1024 * 1024,
         }
+    }
+
+    pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
+        self.read_buffer_size = read_buffer_size;
     }
 
     async fn connect(&self) -> Result<(), MyHttpClientError> {
@@ -102,7 +106,13 @@ impl<
 
         let inner_cloned = self.inner.clone();
         tokio::spawn(async move {
-            super::write_loop::write_loop(inner_cloned, receiver).await;
+            super::write_loop::write_loop(
+                inner_cloned,
+                current_connection_id,
+                receiver,
+                read_from_stream_timeout,
+            )
+            .await;
         });
 
         Ok(())
