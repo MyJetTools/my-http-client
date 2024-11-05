@@ -66,7 +66,11 @@ pub async fn read_loop<
                             Ok(response) => {
                                 let request = inner.pop_request(connection_id).await;
                                 if let Some(mut request) = request {
-                                    request.set_ok(HttpTask::Response(response));
+                                    let err = request.try_set_ok(HttpTask::Response(response));
+                                    if err.is_err() {
+                                        inner.disconnect(connection_id).await;
+                                        break;
+                                    }
                                 } else {
                                     if debug {
                                         println!("No request for response. Looks like it was a disconnect");
