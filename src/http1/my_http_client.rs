@@ -3,13 +3,29 @@ use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
 
 use std::sync::{atomic::AtomicU64, Arc};
-use tokio::io::{ReadHalf, WriteHalf};
 
-use crate::{MyHttpClientConnector, MyHttpClientError};
+use crate::{MyHttpClientConnector, MyHttpClientDisconnect, MyHttpClientError};
 
 use super::{HttpTask, IntoMyHttpRequest, MyHttpClientDisconnection, MyHttpRequest};
 
 use super::MyHttpClientInner;
+
+lazy_static::lazy_static! {
+    pub static ref CONNECTION_ID: Arc<AtomicU64> = {
+        Arc::new(AtomicU64::new(0))
+    };
+}
+
+pub enum MyHttpResponse<
+    TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
+> {
+    Response(hyper::Response<BoxBody<Bytes, String>>),
+    WebSocketUpgrade {
+        stream: TStream,
+        response: hyper::Response<BoxBody<Bytes, String>>,
+        disconnection: Arc<dyn MyHttpClientDisconnect + Send + Sync + 'static>,
+    },
+}
 
 pub struct MyHttpClient<
     TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
@@ -17,7 +33,6 @@ pub struct MyHttpClient<
 > {
     inner: Arc<MyHttpClientInner<TStream>>,
     connector: TConnector,
-    connection_id: AtomicU64,
     send_to_socket_timeout: std::time::Duration,
     connect_timeout: std::time::Duration,
     read_buffer_size: usize,
@@ -42,7 +57,6 @@ impl<
                 metrics,
             )),
             connector,
-            connection_id: AtomicU64::new(0),
             send_to_socket_timeout: std::time::Duration::from_secs(30),
             connect_timeout: std::time::Duration::from_secs(5),
             read_from_stream_timeout: std::time::Duration::from_secs(120),
@@ -72,9 +86,7 @@ impl<
         }
 
         let stream = connect_result.unwrap()?;
-        let current_connection_id = self
-            .connection_id
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let current_connection_id = CONNECTION_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
         let (reader, writer) = tokio::io::split(stream);
 
@@ -122,12 +134,11 @@ impl<
         Ok(())
     }
 
-    async fn send_payload<TResponse>(
+    async fn send_payload(
         &self,
         req: &MyHttpRequest,
         request_timeout: std::time::Duration,
-        handle_ok: &impl Fn(HttpTask<TStream>, u64) -> TResponse,
-    ) -> Result<TResponse, MyHttpClientError> {
+    ) -> Result<(HttpTask<TStream>, u64), MyHttpClientError> {
         loop {
             let err = match self.inner.send(req).await {
                 Ok((awaiter, connection_id)) => {
@@ -142,7 +153,7 @@ impl<
                     let result = result.unwrap();
 
                     match result {
-                        Ok(response) => return Ok(handle_ok(response, connection_id)),
+                        Ok(response) => return Ok((response, connection_id)),
                         Err(err) => err,
                     }
                 }
@@ -162,50 +173,37 @@ impl<
         &self,
         req: impl IntoMyHttpRequest,
         request_timeout: std::time::Duration,
-    ) -> Result<hyper::Response<BoxBody<Bytes, String>>, MyHttpClientError> {
+    ) -> Result<MyHttpResponse<TStream>, MyHttpClientError> {
         let req = req.into_request().await;
 
-        self.send_payload(&req, request_timeout, &|response, _| {
-            response.unwrap_response()
-        })
-        .await
-    }
+        let response = self.send_payload(&req, request_timeout).await;
 
-    pub async fn upgrade_to_web_socket(
-        &self,
-        req: impl IntoMyHttpRequest,
-        request_timeout: std::time::Duration,
-        reunite: impl Fn(ReadHalf<TStream>, WriteHalf<TStream>) -> TStream,
-    ) -> Result<
-        (
-            TStream,
-            hyper::Response<BoxBody<Bytes, String>>,
-            MyHttpClientDisconnection<TStream>,
-        ),
-        MyHttpClientError,
-    > {
-        let req = req.into_request().await;
+        let (task, connection_id) = match response {
+            Ok(task) => task,
+            Err(err) => {
+                return Err(err);
+            }
+        };
 
-        let (response, read_part, connection_id) = self
-            .send_payload(&req, request_timeout, &|response, connection_id| {
-                let result = response.unwrap_websocket_upgrade();
+        match task {
+            HttpTask::Response(response) => {
+                return Ok(MyHttpResponse::Response(response));
+            }
+            HttpTask::WebsocketUpgrade {
+                response,
+                read_part,
+            } => {
+                let write_part = self.inner.upgrade_to_websocket(connection_id).await?;
 
-                (result.0, result.1, connection_id)
-            })
-            .await?;
-
-        match self.inner.upgrade_to_websocket(connection_id).await {
-            Ok(write_part) => {
-                let stream = reunite(read_part, write_part);
-                return Ok((
+                let stream = TConnector::reunite(read_part, write_part);
+                return Ok(MyHttpResponse::WebSocketUpgrade {
                     stream,
                     response,
-                    MyHttpClientDisconnection::new(self.inner.clone(), connection_id),
-                ));
-            }
-            Err(err) => {
-                self.inner.disconnect(connection_id).await;
-                return Err(err);
+                    disconnection: Arc::new(MyHttpClientDisconnection::new(
+                        self.inner.clone(),
+                        connection_id,
+                    )),
+                });
             }
         }
     }

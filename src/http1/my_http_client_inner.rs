@@ -76,7 +76,6 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
 pub struct MyHttpClientInner<
     TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
 > {
-    connected: UnsafeValue<bool>,
     state: Mutex<WritePartState<TStream>>,
     #[cfg(feature = "metrics")]
     pub metrics: Arc<dyn super::MyHttpClientMetrics + Send + Sync + 'static>,
@@ -94,7 +93,6 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
     ) -> Self {
         Self {
             state: Mutex::new(WritePartState::Disconnected),
-            connected: UnsafeValue::new(true),
             #[cfg(feature = "metrics")]
             metrics,
             name: Arc::new(name),
@@ -142,6 +140,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         let connection_context = writer.unwrap_as_connected_mut()?;
         let mut task = TaskCompletion::new();
         let awaiter = task.get_awaiter();
+
         connection_context.queue_of_requests.push(task).await;
 
         match connection_context.queue_to_deliver.as_mut() {
@@ -246,10 +245,6 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
     }
 
     pub async fn disconnect(&self, connection_id: u64) {
-        if !self.connected.get_value() {
-            return;
-        }
-
         let mut state = self.state.lock().await;
 
         if !state.is_active_connection(connection_id) {
@@ -269,8 +264,11 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
                     let _ = ctx.shutdown().await;
                 }
                 context.queue_of_requests.notify_connection_lost().await;
+
+                println!("[{}] Disconnected.", context.connection_id);
             }
-            WritePartState::UpgradedToWebSocket(_) => {
+            WritePartState::UpgradedToWebSocket(context) => {
+                println!("[{}] Disconnected as websocket.", context.connection_id);
                 #[cfg(feature = "metrics")]
                 self.metrics.tcp_disconnect(&self.name);
             }
@@ -278,7 +276,6 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         }
 
         *state = WritePartState::Disconnected;
-        self.connected.set_value(false);
     }
 }
 
@@ -310,5 +307,9 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         tokio::spawn(async move {
             inner.disconnect(connection_id).await;
         });
+    }
+
+    fn get_connection_id(&self) -> u64 {
+        self.connection_id
     }
 }

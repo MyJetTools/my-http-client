@@ -46,6 +46,7 @@ pub async fn write_loop<
     }
 
     inner.disconnect(connection_id).await;
+
     #[cfg(feature = "metrics")]
     inner.metrics.write_thread_stop(&inner.name);
 }
