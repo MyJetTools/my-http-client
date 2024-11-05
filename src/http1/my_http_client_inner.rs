@@ -11,14 +11,14 @@ use crate::{MyHttpClientDisconnect, MyHttpClientError};
 
 use super::{
     write_loop::WriteLoopEvent, HttpAwaiterTask, HttpAwaitingTask, MyHttpClientConnectionContext,
-    MyHttpRequest, QueueOfRequests,
+    MyHttpRequest, QueueOfRequests, WebSocketContextModel,
 };
 
 pub enum WritePartState<
     TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
 > {
     Connected(MyHttpClientConnectionContext<TStream>),
-    UpgradedToWebSocket,
+    UpgradedToWebSocket(WebSocketContextModel),
     Disconnected,
     Disposed,
 }
@@ -46,7 +46,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
                     inner.send_to_socket_timeout,
                 ))
             }
-            WritePartState::UpgradedToWebSocket => None,
+            WritePartState::UpgradedToWebSocket(_) => None,
             WritePartState::Disconnected => None,
             WritePartState::Disposed => None,
         }
@@ -68,7 +68,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
     ) -> Result<&mut MyHttpClientConnectionContext<TStream>, MyHttpClientError> {
         match self {
             WritePartState::Connected(inner) => Ok(inner),
-            WritePartState::UpgradedToWebSocket => Err(MyHttpClientError::UpgradedToWebSocket),
+            WritePartState::UpgradedToWebSocket(_) => Err(MyHttpClientError::UpgradedToWebSocket),
             WritePartState::Disconnected => Err(MyHttpClientError::Disconnected),
             WritePartState::Disposed => Err(MyHttpClientError::Disposed),
         }
@@ -89,7 +89,7 @@ pub struct MyHttpClientInner<
     state: Mutex<WritePartState<TStream>>,
     #[cfg(feature = "metrics")]
     pub metrics: Arc<dyn super::MyHttpClientMetrics + Send + Sync + 'static>,
-    pub name: String,
+    pub name: Arc<String>,
 }
 
 impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static>
@@ -106,7 +106,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             connected: UnsafeValue::new(true),
             #[cfg(feature = "metrics")]
             metrics,
-            name,
+            name: Arc::new(name),
         }
     }
 
@@ -185,11 +185,15 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
                 let result = context.write_stream.take();
                 let _ = context.write_signal.send(WriteLoopEvent::Close).await;
 
-                *state = WritePartState::UpgradedToWebSocket;
+                *state = WritePartState::UpgradedToWebSocket(WebSocketContextModel::new(
+                    self.name.clone(),
+                    #[cfg(feature = "metrics")]
+                    self.metrics.clone(),
+                ));
 
                 Ok(result.unwrap())
             }
-            WritePartState::UpgradedToWebSocket => {
+            WritePartState::UpgradedToWebSocket(_) => {
                 return Err(MyHttpClientError::UpgradedToWebSocket);
             }
             WritePartState::Disconnected => {

@@ -35,7 +35,7 @@ impl<
             dyn super::MyHttpClientMetrics + Send + Sync + 'static,
         >,
     ) -> Self {
-        Self {
+        let result = Self {
             inner: Arc::new(MyHttpClientInner::new(
                 connector.get_remote_host().as_str().to_string(),
                 #[cfg(feature = "metrics")]
@@ -47,7 +47,11 @@ impl<
             connect_timeout: std::time::Duration::from_secs(5),
             read_from_stream_timeout: std::time::Duration::from_secs(120),
             read_buffer_size: 1024 * 1024,
-        }
+        };
+
+        #[cfg(feature = "metrics")]
+        result.inner.metrics.instance_created(&result.inner.name);
+        result
     }
 
     pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
@@ -204,5 +208,16 @@ impl<
                 return Err(err);
             }
         }
+    }
+}
+
+#[cfg(feature = "metrics")]
+impl<
+        TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
+        TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
+    > Drop for MyHttpClient<TStream, TConnector>
+{
+    fn drop(&mut self) {
+        self.inner.metrics.instance_disposed(&self.inner.name);
     }
 }
