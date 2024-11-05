@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use rust_extensions::{TaskCompletion, UnsafeValue};
+use rust_extensions::TaskCompletion;
 
 use tokio::{
     io::{AsyncWriteExt, WriteHalf},
@@ -60,6 +60,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         match self {
             WritePartState::Connected(inner) => Ok(inner),
             WritePartState::UpgradedToWebSocket(_) => Err(MyHttpClientError::UpgradedToWebSocket),
+
             WritePartState::Disconnected => Err(MyHttpClientError::Disconnected),
         }
     }
@@ -117,6 +118,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             queue_of_requests: QueueOfRequests::new(),
             send_to_socket_timeout,
             write_signal,
+            waiting_to_web_socket_upgrade: false,
         });
 
         #[cfg(feature = "metrics")]
@@ -184,6 +186,8 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
                     self.metrics.clone(),
                 ));
 
+                self.metrics.upgraded_to_websocket(&self.name);
+
                 Ok(result.unwrap())
             }
             WritePartState::UpgradedToWebSocket(_) => {
@@ -195,18 +199,28 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         }
     }
 
-    pub async fn pop_request(&self, connection_id: u64) -> Option<HttpAwaitingTask<TStream>> {
+    pub async fn pop_request(
+        &self,
+        connection_id: u64,
+        web_socket_upgrade: bool,
+    ) -> Option<HttpAwaitingTask<TStream>> {
         let mut state = self.state.lock().await;
-        match &mut *state {
+        let result = match &mut *state {
             WritePartState::Connected(context) => {
                 if context.connection_id != connection_id {
                     return None;
                 }
 
+                if web_socket_upgrade {
+                    context.waiting_to_web_socket_upgrade = true;
+                }
+
                 context.queue_of_requests.pop().await
             }
             _ => None,
-        }
+        };
+
+        result
     }
 
     pub async fn flush(&self, connection_id: u64) {
@@ -265,14 +279,37 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
                 }
                 context.queue_of_requests.notify_connection_lost().await;
             }
-            WritePartState::UpgradedToWebSocket(context) => {
+            WritePartState::UpgradedToWebSocket(_) => {
                 #[cfg(feature = "metrics")]
                 self.metrics.tcp_disconnect(&self.name);
+
+                #[cfg(feature = "metrics")]
+                self.metrics.websocket_is_disconnected(&self.name);
             }
             _ => {}
         }
 
         *state = WritePartState::Disconnected;
+    }
+
+    pub async fn read_write_loop_stopped(&self, connection_id: u64) {
+        let mut state = self.state.lock().await;
+
+        let disconnect = match &*state {
+            WritePartState::Connected(ctx) => {
+                if ctx.waiting_to_web_socket_upgrade {
+                    false
+                } else {
+                    ctx.connection_id == connection_id
+                }
+            }
+            WritePartState::UpgradedToWebSocket(_) => false,
+            WritePartState::Disconnected => false,
+        };
+
+        if disconnect {
+            self.process_disconnect(&mut state).await;
+        }
     }
 }
 

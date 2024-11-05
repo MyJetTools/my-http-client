@@ -107,28 +107,43 @@ impl<
 
         let read_from_stream_timeout = self.read_from_stream_timeout;
 
-        let writer_cloned = self.inner.clone();
+        let inner_cloned = self.inner.clone();
         tokio::spawn(async move {
-            super::read_loop::read_loop(
+            let inner = inner_cloned.clone();
+            #[cfg(feature = "metrics")]
+            inner.metrics.read_thread_start(&inner.name);
+            let _ = tokio::spawn(super::read_loop::read_loop(
                 reader,
                 current_connection_id,
-                writer_cloned,
+                inner_cloned,
                 debug,
                 read_buffer_size,
                 read_from_stream_timeout,
-            )
+            ))
             .await;
+
+            #[cfg(feature = "metrics")]
+            inner.metrics.read_thread_stop(&inner.name);
+            inner.read_write_loop_stopped(current_connection_id).await;
         });
 
         let inner_cloned = self.inner.clone();
         tokio::spawn(async move {
-            super::write_loop::write_loop(
+            let inner = inner_cloned.clone();
+            #[cfg(feature = "metrics")]
+            inner.metrics.write_thread_start(&inner.name);
+            let _ = tokio::spawn(super::write_loop::write_loop(
                 inner_cloned,
                 current_connection_id,
                 receiver,
                 read_from_stream_timeout,
-            )
+            ))
             .await;
+
+            inner.read_write_loop_stopped(current_connection_id).await;
+
+            #[cfg(feature = "metrics")]
+            inner.metrics.write_thread_stop(&inner.name);
         });
 
         Ok(())

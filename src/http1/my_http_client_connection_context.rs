@@ -13,6 +13,7 @@ pub struct MyHttpClientConnectionContext<
     pub queue_of_requests: QueueOfRequests<TStream>,
     pub send_to_socket_timeout: std::time::Duration,
     pub write_signal: tokio::sync::mpsc::Sender<WriteLoopEvent>,
+    pub waiting_to_web_socket_upgrade: bool,
 }
 
 pub struct WebSocketContextModel {
@@ -30,20 +31,11 @@ impl WebSocketContextModel {
             dyn super::MyHttpClientMetrics + Send + Sync + 'static,
         >,
     ) -> Self {
-        #[cfg(feature = "metrics")]
-        metrics.upgraded_to_websocket(&name);
         Self {
             name,
             #[cfg(feature = "metrics")]
             metrics,
             connection_id,
         }
-    }
-}
-
-#[cfg(feature = "metrics")]
-impl Drop for WebSocketContextModel {
-    fn drop(&mut self) {
-        self.metrics.websocket_is_disconnected(&self.name);
     }
 }

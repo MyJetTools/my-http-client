@@ -15,9 +15,6 @@ pub async fn write_loop<
     mut receiver: tokio::sync::mpsc::Receiver<WriteLoopEvent>,
     send_to_socket_timeout: std::time::Duration,
 ) {
-    #[cfg(feature = "metrics")]
-    inner.metrics.write_thread_start(&inner.name);
-
     loop {
         let receive = receiver.recv();
 
@@ -44,9 +41,4 @@ pub async fn write_loop<
             }
         }
     }
-
-    inner.disconnect(connection_id).await;
-
-    #[cfg(feature = "metrics")]
-    inner.metrics.write_thread_stop(&inner.name);
 }
