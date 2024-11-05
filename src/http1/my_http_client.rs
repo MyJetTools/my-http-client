@@ -158,7 +158,7 @@ impl<
         }
     }
 
-    pub async fn send(
+    pub async fn do_request(
         &self,
         req: impl IntoMyHttpRequest,
         request_timeout: std::time::Duration,

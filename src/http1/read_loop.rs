@@ -94,7 +94,11 @@ pub async fn read_loop<
                         if let Some(response) = body_reader.get_chunked_body_response() {
                             let request = inner.pop_request(connection_id).await;
                             if let Some(mut request) = request {
-                                request.set_ok(HttpTask::Response(response));
+                                let result = request.try_set_ok(HttpTask::Response(response));
+                                if result.is_err() {
+                                    inner.disconnect(connection_id).await;
+                                    break;
+                                }
                             } else {
                                 if debug {
                                     println!("No request for response during reading chunked response. Looks like it was a disconnect");
@@ -128,10 +132,15 @@ pub async fn read_loop<
                         let upgrade_response = builder.take_upgrade_response();
                         let request = inner.pop_request(connection_id).await;
                         if let Some(mut request) = request {
-                            request.set_ok(HttpTask::WebsocketUpgrade {
+                            let result = request.try_set_ok(HttpTask::WebsocketUpgrade {
                                 response: upgrade_response,
                                 read_part: read,
                             });
+
+                            if result.is_err() {
+                                inner.disconnect(connection_id).await;
+                                break;
+                            }
                         }
 
                         break;
