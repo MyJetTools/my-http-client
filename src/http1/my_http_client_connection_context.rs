@@ -19,22 +19,12 @@ pub struct MyHttpClientConnectionContext<
 pub struct WebSocketContextModel {
     pub name: Arc<String>,
     pub connection_id: u64,
-    #[cfg(feature = "metrics")]
-    pub metrics: Arc<dyn super::MyHttpClientMetrics + Send + Sync + 'static>,
 }
 
 impl WebSocketContextModel {
-    pub fn new(
-        name: Arc<String>,
-        connection_id: u64,
-        #[cfg(feature = "metrics")] metrics: Arc<
-            dyn super::MyHttpClientMetrics + Send + Sync + 'static,
-        >,
-    ) -> Self {
+    pub fn new(name: Arc<String>, connection_id: u64) -> Self {
         Self {
             name,
-            #[cfg(feature = "metrics")]
-            metrics,
             connection_id,
         }
     }

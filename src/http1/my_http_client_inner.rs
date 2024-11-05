@@ -182,10 +182,9 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
                 *state = WritePartState::UpgradedToWebSocket(WebSocketContextModel::new(
                     self.name.clone(),
                     connection_id,
-                    #[cfg(feature = "metrics")]
-                    self.metrics.clone(),
                 ));
 
+                #[cfg(feature = "metrics")]
                 self.metrics.upgraded_to_websocket(&self.name);
 
                 Ok(result.unwrap())
