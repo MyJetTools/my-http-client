@@ -111,14 +111,16 @@ impl<
             ))
             .await;
 
-            match err {
-                Ok(ok) => {
-                    if let Err(err) = ok {
+            if debug {
+                match err {
+                    Ok(ok) => {
+                        if let Err(err) = ok {
+                            println!("Read loop exited with error: {:?}", err);
+                        }
+                    }
+                    Err(err) => {
                         println!("Read loop exited with error: {:?}", err);
                     }
-                }
-                Err(err) => {
-                    println!("Read loop exited with error: {:?}", err);
                 }
             }
 
