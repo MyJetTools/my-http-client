@@ -35,7 +35,6 @@ pub struct MyHttpClient<
     connector: TConnector,
     send_to_socket_timeout: std::time::Duration,
     connect_timeout: std::time::Duration,
-    read_buffer_size: usize,
     read_from_stream_timeout: std::time::Duration,
 }
 
@@ -60,16 +59,11 @@ impl<
             send_to_socket_timeout: std::time::Duration::from_secs(30),
             connect_timeout: std::time::Duration::from_secs(5),
             read_from_stream_timeout: std::time::Duration::from_secs(120),
-            read_buffer_size: 1024 * 512,
         };
 
         #[cfg(feature = "metrics")]
         result.inner.metrics.instance_created(&result.inner.name);
         result
-    }
-
-    pub fn set_read_buffer_size(&mut self, read_buffer_size: usize) {
-        self.read_buffer_size = read_buffer_size;
     }
 
     async fn connect(&self) -> Result<(), MyHttpClientError> {
@@ -103,8 +97,6 @@ impl<
 
         let debug = self.connector.is_debug();
 
-        let read_buffer_size = self.read_buffer_size;
-
         let read_from_stream_timeout = self.read_from_stream_timeout;
 
         let inner_cloned = self.inner.clone();
@@ -112,15 +104,25 @@ impl<
             let inner = inner_cloned.clone();
             #[cfg(feature = "metrics")]
             inner.metrics.read_thread_start(&inner.name);
-            let _ = tokio::spawn(super::read_loop::read_loop(
+            let err = tokio::spawn(super::read_loop::read_loop(
                 reader,
                 current_connection_id,
                 inner_cloned,
                 debug,
-                read_buffer_size,
                 read_from_stream_timeout,
             ))
             .await;
+
+            match err {
+                Ok(ok) => {
+                    if let Err(err) = ok {
+                        println!("Read loop exited with error: {:?}", err);
+                    }
+                }
+                Err(err) => {
+                    println!("Read loop exited with error: {:?}", err);
+                }
+            }
 
             #[cfg(feature = "metrics")]
             inner.metrics.read_thread_stop(&inner.name);

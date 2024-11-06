@@ -1,4 +1,6 @@
 mod my_http_client;
+use std::time::Duration;
+
 pub use my_http_client::*;
 mod detected_body_size;
 pub use detected_body_size::*;
@@ -19,6 +21,7 @@ pub use my_http_client_connection_context::*;
 pub use my_http_request_builder::*;
 
 mod tcp_buffer;
+use rust_extensions::StrOrString;
 pub use tcp_buffer::*;
 
 mod body_reader;
@@ -30,8 +33,22 @@ mod my_http_client_metrics;
 #[cfg(feature = "metrics")]
 pub use my_http_client_metrics::*;
 
+mod read_with_timeout;
+pub use read_with_timeout::*;
+
 #[derive(Debug)]
 pub enum HttpParseError {
     GetMoreData,
-    Error(String),
+    Error(StrOrString<'static>),
+    ReadingTimeout(Duration),
+    Disconnected,
+}
+
+impl HttpParseError {
+    pub fn get_more_data(&self) -> bool {
+        match self {
+            HttpParseError::GetMoreData => true,
+            _ => false,
+        }
+    }
 }

@@ -1,29 +1,67 @@
 use super::HttpParseError;
 
 const CRLF: &[u8] = b"\r\n";
+
+const BUFFER_SIZE: usize = 65535;
 pub struct TcpBuffer {
-    buffer: Vec<u8>,
+    buffer: [u8; BUFFER_SIZE],
     pub read_pos: usize,
     pub consumed_pos: usize,
 }
 
 impl TcpBuffer {
-    pub fn new(read_buffer_size: usize) -> Self {
-        let mut buffer = Vec::with_capacity(read_buffer_size);
-        unsafe {
-            buffer.set_len(read_buffer_size);
-        }
-
+    pub fn new() -> Self {
         Self {
-            buffer,
+            buffer: [0u8; BUFFER_SIZE],
             read_pos: 0,
             consumed_pos: 0,
         }
     }
+    pub fn is_empty(&self) -> bool {
+        self.read_pos == self.consumed_pos
+    }
+
+    fn compact(&mut self) {
+        const TEMP_BUFFER_SIZE: usize = 1024;
+        let mut buffer_to_move = [0u8; TEMP_BUFFER_SIZE];
+
+        let mut pos = self.consumed_pos;
+        let mut dest_pos = 0;
+
+        let mut remains_to_move = self.read_pos - pos;
+
+        println!("Compacting data {}", remains_to_move);
+
+        let size = remains_to_move;
+
+        while remains_to_move >= TEMP_BUFFER_SIZE {
+            let buffer_to_copy = &self.buffer[pos..pos + TEMP_BUFFER_SIZE];
+            buffer_to_move.copy_from_slice(buffer_to_copy);
+
+            self.buffer[dest_pos..dest_pos + TEMP_BUFFER_SIZE].copy_from_slice(&buffer_to_move);
+
+            pos += TEMP_BUFFER_SIZE;
+            dest_pos += TEMP_BUFFER_SIZE;
+            remains_to_move -= TEMP_BUFFER_SIZE;
+        }
+
+        if remains_to_move > 0 {
+            let buffer_to_copy = &self.buffer[pos..pos + remains_to_move];
+            buffer_to_move[..remains_to_move].copy_from_slice(buffer_to_copy);
+
+            self.buffer[dest_pos..dest_pos + remains_to_move]
+                .copy_from_slice(&buffer_to_move[..remains_to_move]);
+        }
+
+        self.consumed_pos = 0;
+        self.read_pos = size;
+    }
 
     pub fn get_write_buf(&mut self) -> &mut [u8] {
         if self.consumed_pos > 0 {
-            if self.consumed_pos == self.read_pos {
+            if self.consumed_pos < self.read_pos {
+                self.compact();
+            } else {
                 self.read_pos = 0;
                 self.consumed_pos = 0;
             }
@@ -36,7 +74,7 @@ impl TcpBuffer {
         self.read_pos += pos;
     }
 
-    pub fn read_until_crlf(&mut self) -> Result<&[u8], HttpParseError> {
+    pub fn read_until_crlf<'s>(&'s mut self) -> Result<&'s [u8], HttpParseError> {
         let mut pos = self.consumed_pos;
 
         while pos < self.read_pos - 1 {
@@ -61,9 +99,9 @@ impl TcpBuffer {
         Ok(())
     }
 
-    pub fn get_as_much_as_possible(&mut self, max_size: usize) -> Result<&[u8], HttpParseError> {
+    pub fn get_as_much_as_possible(&mut self, max_size: usize) -> Option<&[u8]> {
         if self.read_pos == self.consumed_pos {
-            return Err(HttpParseError::GetMoreData);
+            return None;
         }
 
         let has_amount = self.read_pos - self.consumed_pos;
@@ -76,6 +114,28 @@ impl TcpBuffer {
 
         self.consumed_pos += result.len();
 
-        Ok(result)
+        Some(result)
+    }
+
+    /*
+       pub fn print_debug_info(&self) {
+           println!(
+               "Read pos: {}, Consumed pos: {}. Remains: {}",
+               self.read_pos,
+               self.consumed_pos,
+               self.read_pos - self.consumed_pos
+           );
+
+           let buf = &self.buffer[self.consumed_pos..self.read_pos];
+
+           if buf.len() > 15 {
+               println!("Buffer: [{:?}]", std::str::from_utf8(&buf[..15]));
+           } else {
+               println!("Buffer: [{:?}]", std::str::from_utf8(buf));
+           }
+       }
+    */
+    pub fn get_buf(&self) -> &[u8] {
+        &self.buffer[self.consumed_pos..self.read_pos]
     }
 }

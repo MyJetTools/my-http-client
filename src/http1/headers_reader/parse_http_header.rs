@@ -11,10 +11,9 @@ pub fn parse_http_header(
     let pos = src.find_byte_pos(b':', 0);
 
     if pos.is_none() {
-        return Err(HttpParseError::Error(format!(
-            "Invalid header {}",
-            std::str::from_utf8(src).unwrap()
-        )));
+        return Err(HttpParseError::Error(
+            format!("Invalid header {}", std::str::from_utf8(src).unwrap()).into(),
+        ));
     }
 
     let pos = pos.unwrap();
@@ -29,10 +28,9 @@ pub fn parse_http_header(
         match value_str.parse() {
             Ok(value) => body_size = DetectedBodySize::Known(value),
             Err(_) => {
-                return Err(HttpParseError::Error(format!(
-                    "Invalid Content-Length value: {}",
-                    value_str
-                )));
+                return Err(HttpParseError::Error(
+                    format!("Invalid Content-Length value: {}", value_str).into(),
+                ));
             }
         }
     }

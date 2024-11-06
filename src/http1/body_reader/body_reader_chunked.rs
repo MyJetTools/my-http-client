@@ -1,9 +1,6 @@
 use bytes::Bytes;
-use futures::SinkExt;
 use http::Response;
 use http_body_util::{combinators::BoxBody, BodyExt, StreamBody};
-
-use super::super::*;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ChunksReadingMode {
@@ -16,7 +13,7 @@ pub enum ChunksReadingMode {
 #[derive(Debug)]
 pub struct BodyReaderChunked {
     pub reading_mode: ChunksReadingMode,
-    sender: futures::channel::mpsc::Sender<Result<hyper::body::Frame<Bytes>, hyper::Error>>,
+    pub sender: futures::channel::mpsc::Sender<Result<hyper::body::Frame<Bytes>, hyper::Error>>,
     pub current_chunk: Option<Vec<u8>>,
     pub chunked_body_response: Option<Response<BoxBody<Bytes, String>>>,
 }
@@ -42,13 +39,17 @@ impl BodyReaderChunked {
         }
     }
 
-    pub fn get_chunked_body_response(&mut self) -> Option<Response<BoxBody<Bytes, String>>> {
-        self.chunked_body_response.take()
+    pub fn get_chunked_body_response(&mut self) -> Response<BoxBody<Bytes, String>> {
+        self.chunked_body_response.take().unwrap()
     }
 
-    pub async fn populate_and_detect_last_body_chunk(
+    /*
+    pub async fn read_body<
+        TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
+    >(
         &mut self,
         read_buffer: &mut TcpBuffer,
+        read_stream: &ReadHalf<TStream>,
     ) -> Result<(), HttpParseError> {
         loop {
             match self.reading_mode {
@@ -65,10 +66,13 @@ impl BodyReaderChunked {
                             }
                         }
                         None => {
-                            return Err(HttpParseError::Error(format!(
-                                "Failed to parse chunk size. Invalid number [{:?}]",
-                                std::str::from_utf8(chunk_size_str)
-                            )));
+                            return Err(HttpParseError::Error(
+                                format!(
+                                    "Failed to parse chunk size. Invalid number [{:?}]",
+                                    std::str::from_utf8(chunk_size_str)
+                                )
+                                .into(),
+                            ));
                         }
                     }
                 }
@@ -103,8 +107,43 @@ impl BodyReaderChunked {
             }
         }
     }
+     */
+
+    /*
+    async fn read_chunk_size<
+        TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
+    >(
+        &self,
+        read_buffer: &mut TcpBuffer,
+        read_stream: &ReadHalf<TStream>,
+    ) -> Result<usize, HttpParseError> {
+        match read_buffer.read_until_crlf() {
+            Ok(chunk_size_str) => match get_chunk_size(chunk_size_str) {
+                Some(chunk_size) => {
+                    return Ok(chunk_size);
+                }
+                None => {
+                    return Err(HttpParseError::Error(
+                        format!(
+                            "Failed to parse chunk size. Invalid number [{:?}]",
+                            std::str::from_utf8(chunk_size_str)
+                        )
+                        .into(),
+                    ));
+                }
+            },
+            Err(err) => match err {
+                HttpParseError::GetMoreData => {
+                    let mut buffer = read_buffer.get_write_buf();
+                }
+                _ => return Err(err),
+            },
+        }
+    }
+     */
 }
 
+/*
 fn get_chunk_size(src: &[u8]) -> Option<usize> {
     let mut result = 0;
 
@@ -135,3 +174,4 @@ fn from_hex_number(c: u8) -> Option<usize> {
         _ => None,
     }
 }
+ */
