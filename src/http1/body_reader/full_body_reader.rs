@@ -46,9 +46,9 @@ impl FullBodyReader {
                     let response = inner.into_body();
                     return Ok(response);
                 }
-
-                self.inner = Some(inner);
             }
+
+            self.inner = Some(inner);
 
             return Err(HttpParseError::GetMoreData);
         }
