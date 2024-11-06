@@ -225,3 +225,18 @@ impl<
         }
     }
 }
+
+impl<
+        TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
+        TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
+    > Drop for MyHttpClient<TStream, TConnector>
+{
+    fn drop(&mut self) {
+        println!("MyHttpClient dropped");
+        let inner = self.inner.clone();
+
+        tokio::spawn(async move {
+            inner.dispose().await;
+        });
+    }
+}

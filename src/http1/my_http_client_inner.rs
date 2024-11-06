@@ -20,6 +20,7 @@ pub enum WritePartState<
     Connected(MyHttpClientConnectionContext<TStream>),
     UpgradedToWebSocket(WebSocketContextModel),
     Disconnected,
+    Disposed,
 }
 
 impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static>
@@ -47,6 +48,13 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             }
             WritePartState::UpgradedToWebSocket(_) => None,
             WritePartState::Disconnected => None,
+            WritePartState::Disposed => None,
+        }
+    }
+    pub fn is_disposed(&self) -> bool {
+        match self {
+            WritePartState::Disposed => true,
+            _ => false,
         }
     }
 }
@@ -62,6 +70,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             WritePartState::UpgradedToWebSocket(_) => Err(MyHttpClientError::UpgradedToWebSocket),
 
             WritePartState::Disconnected => Err(MyHttpClientError::Disconnected),
+            WritePartState::Disposed => Err(MyHttpClientError::Disposed),
         }
     }
 
@@ -113,7 +122,9 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
     ) {
         let mut state = self.state.lock().await;
 
-        self.process_disconnect(&mut state).await;
+        if state.is_disposed() {
+            panic!("Disposed");
+        }
 
         *state = WritePartState::Connected(MyHttpClientConnectionContext {
             write_stream: Some(write_stream),
@@ -199,6 +210,9 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             WritePartState::Disconnected => {
                 return Err(MyHttpClientError::Disconnected);
             }
+            WritePartState::Disposed => {
+                return Err(MyHttpClientError::Disposed);
+            }
         }
     }
 
@@ -268,10 +282,15 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             return;
         }
 
-        self.process_disconnect(&mut state).await;
+        self.process_disconnect(&mut state, WritePartState::Disconnected)
+            .await;
     }
 
-    async fn process_disconnect(&self, state: &mut WritePartState<TStream>) {
+    async fn process_disconnect(
+        &self,
+        state: &mut WritePartState<TStream>,
+        new_status: WritePartState<TStream>,
+    ) {
         match &mut *state {
             WritePartState::Connected(context) => {
                 #[cfg(feature = "metrics")]
@@ -292,7 +311,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             _ => {}
         }
 
-        *state = WritePartState::Disconnected;
+        *state = new_status;
     }
 
     pub async fn read_write_loop_stopped(&self, connection_id: u64) {
@@ -308,11 +327,19 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             }
             WritePartState::UpgradedToWebSocket(_) => false,
             WritePartState::Disconnected => false,
+            WritePartState::Disposed => false,
         };
 
         if disconnect {
-            self.process_disconnect(&mut state).await;
+            self.process_disconnect(&mut state, WritePartState::Disconnected)
+                .await;
         }
+    }
+
+    pub async fn dispose(&self) {
+        let mut state = self.state.lock().await;
+        self.process_disconnect(&mut state, WritePartState::Disposed)
+            .await;
     }
 }
 
