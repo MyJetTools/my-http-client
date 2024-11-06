@@ -304,9 +304,6 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             WritePartState::UpgradedToWebSocket(_) => {
                 #[cfg(feature = "metrics")]
                 self.metrics.tcp_disconnect(&self.name);
-
-                #[cfg(feature = "metrics")]
-                self.metrics.websocket_is_disconnected(&self.name);
             }
             _ => {}
         }
@@ -374,6 +371,20 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
     MyHttpClientDisconnect for MyHttpClientDisconnection<TStream>
 {
     fn disconnect(&self) {
+        let inner = self.inner.clone();
+        let connection_id = self.connection_id;
+
+        tokio::spawn(async move {
+            inner.disconnect(connection_id).await;
+        });
+    }
+
+    fn web_socket_disconnect(&self) {
+        #[cfg(feature = "metrics")]
+        self.inner
+            .metrics
+            .websocket_is_disconnected(&self.inner.name);
+
         let inner = self.inner.clone();
         let connection_id = self.connection_id;
 
