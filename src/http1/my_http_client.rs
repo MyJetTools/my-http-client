@@ -61,8 +61,6 @@ impl<
             read_from_stream_timeout: std::time::Duration::from_secs(120),
         };
 
-        #[cfg(feature = "metrics")]
-        result.inner.metrics.instance_created(&result.inner.name);
         result
     }
 
@@ -223,16 +221,5 @@ impl<
                 });
             }
         }
-    }
-}
-
-#[cfg(feature = "metrics")]
-impl<
-        TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
-        TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
-    > Drop for MyHttpClient<TStream, TConnector>
-{
-    fn drop(&mut self) {
-        self.inner.metrics.instance_disposed(&self.inner.name);
     }
 }

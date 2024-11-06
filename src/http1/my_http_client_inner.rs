@@ -92,12 +92,16 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             dyn super::MyHttpClientMetrics + Send + Sync + 'static,
         >,
     ) -> Self {
-        Self {
+        let result = Self {
             state: Mutex::new(WritePartState::Disconnected),
             #[cfg(feature = "metrics")]
             metrics,
             name: Arc::new(name),
-        }
+        };
+
+        #[cfg(feature = "metrics")]
+        result.metrics.instance_created(&result.name);
+        result
     }
 
     pub async fn new_connection(
@@ -309,6 +313,15 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         if disconnect {
             self.process_disconnect(&mut state).await;
         }
+    }
+}
+
+#[cfg(feature = "metrics")]
+impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static> Drop
+    for MyHttpClientInner<TStream>
+{
+    fn drop(&mut self) {
+        self.metrics.instance_disposed(&self.name);
     }
 }
 
