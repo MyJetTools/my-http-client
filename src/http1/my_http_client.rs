@@ -232,9 +232,7 @@ impl<
     > Drop for MyHttpClient<TStream, TConnector>
 {
     fn drop(&mut self) {
-        println!("MyHttpClient dropped");
         let inner = self.inner.clone();
-
         tokio::spawn(async move {
             inner.dispose().await;
         });
