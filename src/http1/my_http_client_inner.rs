@@ -351,7 +351,9 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         self.process_disconnect(&mut state.0, WritePartState::Disposed)
             .await;
 
-        let _ = state.1.as_ref().unwrap().send(WriteLoopEvent::Close).await;
+        if let Some(sender) = state.1.as_ref() {
+            let _ = sender.send(WriteLoopEvent::Close).await;
+        }
     }
 }
 
