@@ -51,6 +51,7 @@ impl MyHttp2ClientInner {
             dyn super::MyHttp2ClientMetrics + Send + Sync + 'static,
         >,
     ) -> Self {
+        metrics.instance_created(name.as_str());
         Self {
             state: Mutex::new(MyHttp2ConnectionState::Disconnected),
             #[cfg(feature = "metrics")]
@@ -161,5 +162,11 @@ impl MyHttp2ClientInner {
     pub async fn force_disconnect(&self) {
         let mut state = self.state.lock().await;
         *state = MyHttp2ConnectionState::Disconnected;
+    }
+}
+
+impl Drop for MyHttp2ClientInner {
+    fn drop(&mut self) {
+        self.metrics.instance_disposed(&self.name);
     }
 }
