@@ -11,24 +11,39 @@ pub fn parse_http_header(
     let pos = src.find_byte_pos(b':', 0);
 
     if pos.is_none() {
-        return Err(HttpParseError::Error(
-            format!("Invalid header {}", std::str::from_utf8(src).unwrap()).into(),
+        return Err(HttpParseError::InvalidHttpPayload(
+            "Can not find separator between HTTP header and Http response".into(),
         ));
     }
 
     let pos = pos.unwrap();
 
     let name = &src[..pos];
-    let name = std::str::from_utf8(name).unwrap();
+    let name = std::str::from_utf8(name).map_err(|_| {
+        HttpParseError::InvalidHttpPayload(
+            "Invalid HTTP header name. Can not convert payload to UTF8 string".into(),
+        )
+    })?;
 
     let value = &src[pos + 1..];
-    let value_str = std::str::from_utf8(value).unwrap().trim();
+    let value_str = std::str::from_utf8(value).map_err(|_| {
+        HttpParseError::InvalidHttpPayload(
+            "Invalid HTTP value. Can not convert payload to UTF8 string".into(),
+        )
+    })?;
+
+    let value_str = value_str.trim();
 
     if name.eq_ignore_ascii_case("Content-Length") {
         match value_str.parse() {
             Ok(value) => body_size = DetectedBodySize::Known(value),
             Err(_) => {
-                return Err(HttpParseError::Error(
+                let value_str = if value_str.len() > 16 {
+                    &value_str[..16]
+                } else {
+                    value_str
+                };
+                return Err(HttpParseError::InvalidHttpPayload(
                     format!("Invalid Content-Length value: {}", value_str).into(),
                 ));
             }
@@ -47,9 +62,17 @@ pub fn parse_http_header(
         }
     }
 
-    builder = builder.header(name, HeaderValue::from_bytes(value).unwrap());
+    let header_value = HeaderValue::from_str(value_str).map_err(|err| {
+        HttpParseError::InvalidHttpPayload(
+            format!(
+                "Invalid Header value. {}: {}. Err: {}",
+                name, value_str, err
+            )
+            .into(),
+        )
+    })?;
 
-    // builder.header(name, value);
+    builder = builder.header(name, header_value);
 
     Ok((builder, body_size))
 }

@@ -57,37 +57,45 @@ impl TcpBuffer {
         self.read_pos = size;
     }
 
-    pub fn get_write_buf(&mut self) -> &mut [u8] {
-        if self.consumed_pos > 0 {
-            if self.consumed_pos < self.read_pos {
-                self.compact();
-            } else {
-                self.read_pos = 0;
-                self.consumed_pos = 0;
+    pub fn get_total_buffer_size(&self) -> usize {
+        self.buffer.len()
+    }
+    pub fn get_write_buf(&mut self) -> Option<&mut [u8]> {
+        if self.consumed_pos == 0 {
+            if self.read_pos == self.buffer.len() {
+                return None;
             }
+            return Some(&mut self.buffer[self.read_pos..]);
         }
 
-        &mut self.buffer[self.read_pos..]
+        if self.consumed_pos < self.read_pos {
+            self.compact();
+        } else {
+            self.read_pos = 0;
+            self.consumed_pos = 0;
+        }
+
+        Some(&mut self.buffer[self.read_pos..])
     }
 
     pub fn add_read_amount(&mut self, pos: usize) {
         self.read_pos += pos;
     }
 
-    pub fn read_until_crlf<'s>(&'s mut self) -> Result<&'s [u8], HttpParseError> {
+    pub fn read_until_crlf<'s>(&'s mut self) -> Option<&'s [u8]> {
         let mut pos = self.consumed_pos;
 
         while pos < self.read_pos - 1 {
             if &self.buffer[pos..pos + 2] == CRLF {
                 let result = &self.buffer[self.consumed_pos..pos];
                 self.consumed_pos = pos + 2;
-                return Ok(result);
+                return Some(result);
             }
 
             pos += 1;
         }
 
-        Err(HttpParseError::GetMoreData)
+        None
     }
 
     pub fn skip_exactly(&mut self, size_to_skip: usize) -> Result<(), HttpParseError> {

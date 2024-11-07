@@ -9,7 +9,18 @@ pub async fn read_to_buffer<TStream: tokio::io::AsyncRead>(
     tcp_buffer: &mut TcpBuffer,
     read_time_out: Duration,
 ) -> Result<(), HttpParseError> {
-    let write_buf = tcp_buffer.get_write_buf();
+    let write_buf = match tcp_buffer.get_write_buf() {
+        Some(write_buf) => write_buf,
+        None => {
+            return Err(HttpParseError::InvalidHttpPayload(
+                format!(
+                    "Write Buffer is too small to read http headers. Size: [{}]",
+                    tcp_buffer.get_total_buffer_size()
+                )
+                .into(),
+            ));
+        }
+    };
 
     if write_buf.len() == 0 {
         panic!("Payload must be not empty");
@@ -102,13 +113,9 @@ pub async fn read_until_crlf<TResult, TStream: tokio::io::AsyncRead>(
 ) -> Result<TResult, HttpParseError> {
     loop {
         match tcp_buffer.read_until_crlf() {
-            Ok(as_str) => return conversion(as_str),
-            Err(err) => {
-                if err.get_more_data() {
-                    read_to_buffer(read_stream, tcp_buffer, read_timeout).await?;
-                } else {
-                    return Err(err);
-                }
+            Some(as_str) => return conversion(as_str),
+            None => {
+                read_to_buffer(read_stream, tcp_buffer, read_timeout).await?;
             }
         }
     }

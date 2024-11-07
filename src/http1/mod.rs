@@ -42,6 +42,7 @@ pub enum HttpParseError {
     Error(StrOrString<'static>),
     ReadingTimeout(Duration),
     Disconnected,
+    InvalidHttpPayload(StrOrString<'static>),
 }
 
 impl HttpParseError {

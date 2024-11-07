@@ -30,10 +30,21 @@ impl<
         TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
     > MyHttp2Client<TStream, TConnector>
 {
-    pub fn new(connector: TConnector) -> Self {
+    pub fn new(
+        connector: TConnector,
+        #[cfg(feature = "metrics")] metrics: Arc<
+            dyn super::MyHttp2ClientMetrics + Send + Sync + 'static,
+        >,
+    ) -> Self {
         Self {
+            inner: Arc::new(MyHttp2ClientInner::new(
+                #[cfg(feature = "metrics")]
+                connector.get_remote_host().to_string(),
+                #[cfg(feature = "metrics")]
+                metrics,
+            )),
             connector,
-            inner: Arc::new(MyHttp2ClientInner::new()),
+
             stream: PhantomData::default(),
             connect_timeout: Duration::from_secs(5),
             connection_id: AtomicU64::new(0),
@@ -91,6 +102,9 @@ impl<
                     self.inner.force_disconnect().await;
                     self.connect().await?;
                 }
+                super::SendHttp2PayloadError::Disposed => {
+                    return Err(MyHttpClientError::Disposed);
+                }
             }
         }
     }
@@ -133,6 +147,22 @@ impl<
             current_connection_id: connection_id,
         };
 
+        self.inner.metrics.connected(&self.inner.name);
+
         Ok(())
+    }
+}
+
+impl<
+        TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + Sync + 'static,
+        TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
+    > Drop for MyHttp2Client<TStream, TConnector>
+{
+    fn drop(&mut self) {
+        let inner = self.inner.clone();
+
+        tokio::spawn(async move {
+            inner.dispose().await;
+        });
     }
 }

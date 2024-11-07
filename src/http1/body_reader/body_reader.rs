@@ -1,12 +1,18 @@
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
 
-use super::*;
+use super::ChunksSender;
 
 #[derive(Debug)]
 pub enum BodyReader {
-    LengthBased(FullBodyReader),
-    Chunked(BodyReaderChunked),
+    LengthBased {
+        builder: http::response::Builder,
+        body_size: usize,
+    },
+    Chunked {
+        response: crate::MyHttpResponse,
+        sender: ChunksSender,
+    },
     WebSocketUpgrade(WebSocketUpgradeBuilder),
 }
 

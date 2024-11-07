@@ -27,3 +27,13 @@ pub fn from_incoming_body(response: Response<Incoming>) -> Response<BoxBody<Byte
 
     Response::from_parts(parts, box_body)
 }
+
+pub fn into_body(
+    builder: http::response::Builder,
+    body: Vec<u8>,
+) -> http::Response<BoxBody<Bytes, String>> {
+    let full_body = http_body_util::Full::new(hyper::body::Bytes::from(body));
+    builder
+        .body(full_body.map_err(|itm| itm.to_string()).boxed())
+        .unwrap()
+}

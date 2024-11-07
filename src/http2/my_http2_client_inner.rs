@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 #[derive(Debug)]
 pub enum SendHttp2PayloadError {
     Disconnected,
+    Disposed,
     RequestTimeout(Duration),
     HyperError {
         connected: DateTimeAsMicroseconds,
@@ -18,11 +19,13 @@ pub enum SendHttp2PayloadError {
 
 pub enum MyHttp2ConnectionState {
     Disconnected,
+
     Connected {
         current_connection_id: u64,
         connected: DateTimeAsMicroseconds,
         send_request: SendRequest<Full<Bytes>>,
     },
+    Disposed,
 }
 
 impl MyHttp2ConnectionState {
@@ -36,12 +39,24 @@ impl MyHttp2ConnectionState {
 
 pub struct MyHttp2ClientInner {
     pub state: Mutex<MyHttp2ConnectionState>,
+    pub name: String,
+    #[cfg(feature = "metrics")]
+    pub metrics: std::sync::Arc<dyn super::MyHttp2ClientMetrics + Send + Sync + 'static>,
 }
 
 impl MyHttp2ClientInner {
-    pub fn new() -> Self {
+    pub fn new(
+        #[cfg(feature = "metrics")] name: String,
+        #[cfg(feature = "metrics")] metrics: std::sync::Arc<
+            dyn super::MyHttp2ClientMetrics + Send + Sync + 'static,
+        >,
+    ) -> Self {
         Self {
             state: Mutex::new(MyHttp2ConnectionState::Disconnected),
+            #[cfg(feature = "metrics")]
+            name,
+            #[cfg(feature = "metrics")]
+            metrics,
         }
     }
 
@@ -65,6 +80,9 @@ impl MyHttp2ClientInner {
                     *connected,
                     *current_connection_id,
                 ),
+                MyHttp2ConnectionState::Disposed => {
+                    return Err(SendHttp2PayloadError::Disposed);
+                }
             }
         };
 
@@ -108,13 +126,36 @@ impl MyHttp2ClientInner {
                 if *current_connection_id != connection_id {
                     return;
                 }
+
+                #[cfg(feature = "metrics")]
+                self.metrics.disconnected(self.name.as_str());
             }
             MyHttp2ConnectionState::Disconnected => {
+                return;
+            }
+
+            MyHttp2ConnectionState::Disposed => {
                 return;
             }
         }
 
         *state = MyHttp2ConnectionState::Disconnected;
+    }
+
+    pub async fn dispose(&self) {
+        let mut state = self.state.lock().await;
+
+        match &*state {
+            MyHttp2ConnectionState::Connected { .. } => {
+                #[cfg(feature = "metrics")]
+                self.metrics.disconnected(self.name.as_str());
+            }
+            MyHttp2ConnectionState::Disconnected => {}
+
+            MyHttp2ConnectionState::Disposed => {}
+        }
+
+        *state = MyHttp2ConnectionState::Disposed;
     }
 
     pub async fn force_disconnect(&self) {
