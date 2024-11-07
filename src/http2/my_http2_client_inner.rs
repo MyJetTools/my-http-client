@@ -39,6 +39,7 @@ impl MyHttp2ConnectionState {
 
 pub struct MyHttp2ClientInner {
     pub state: Mutex<MyHttp2ConnectionState>,
+    #[cfg(feature = "metrics")]
     pub name: String,
     #[cfg(feature = "metrics")]
     pub metrics: std::sync::Arc<dyn super::MyHttp2ClientMetrics + Send + Sync + 'static>,
@@ -51,6 +52,7 @@ impl MyHttp2ClientInner {
             dyn super::MyHttp2ClientMetrics + Send + Sync + 'static,
         >,
     ) -> Self {
+        #[cfg(feature = "metrics")]
         metrics.instance_created(name.as_str());
         Self {
             state: Mutex::new(MyHttp2ConnectionState::Disconnected),
@@ -165,6 +167,7 @@ impl MyHttp2ClientInner {
     }
 }
 
+#[cfg(feature = "metrics")]
 impl Drop for MyHttp2ClientInner {
     fn drop(&mut self) {
         self.metrics.instance_disposed(&self.name);

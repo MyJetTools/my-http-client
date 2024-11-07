@@ -147,6 +147,7 @@ impl<
             current_connection_id: connection_id,
         };
 
+        #[cfg(feature = "metrics")]
         self.inner.metrics.connected(&self.inner.name);
 
         Ok(())
