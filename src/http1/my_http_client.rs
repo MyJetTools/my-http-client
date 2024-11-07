@@ -107,7 +107,6 @@ impl<
                     reader,
                     current_connection_id,
                     inner_cloned.clone(),
-                    debug,
                     read_from_stream_timeout,
                 )
                 .await;
@@ -120,9 +119,10 @@ impl<
                             let _ = task.set_error(MyHttpClientError::CanNotExecuteRequest(
                                 invalid_payload_reason.to_string(),
                             ));
-                            inner_cloned.disconnect(current_connection_id).await;
                         }
                     }
+
+                    inner_cloned.disconnect(current_connection_id).await;
                 }
 
                 resp

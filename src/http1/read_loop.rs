@@ -11,7 +11,6 @@ pub async fn read_loop<
     mut read_stream: ReadHalf<TStream>,
     connection_id: u64,
     inner: Arc<MyHttpClientInner<TStream>>,
-    debug: bool,
     read_timeout: Duration,
 ) -> Result<(), HttpParseError> {
     let mut do_read_to_buffer = true;
@@ -49,7 +48,7 @@ pub async fn read_loop<
                         let result = request.try_set_ok(HttpTask::Response(response));
 
                         if result.is_err() {
-                            break;
+                            return Ok(());
                         }
                     }
                 }
@@ -59,7 +58,7 @@ pub async fn read_loop<
                         let result = request.try_set_ok(HttpTask::Response(response));
 
                         if result.is_err() {
-                            break;
+                            return Ok(());
                         }
                     }
 
@@ -81,7 +80,7 @@ pub async fn read_loop<
                         });
                     }
 
-                    break;
+                    return Ok(());
                 }
             },
             Err(err) => match err {
@@ -89,11 +88,7 @@ pub async fn read_loop<
                     do_read_to_buffer = true;
                 }
                 _ => {
-                    if debug {
-                        println!("Http parser error: {:?}", err);
-                    }
-
-                    break;
+                    return Err(err);
                 }
             },
         }
