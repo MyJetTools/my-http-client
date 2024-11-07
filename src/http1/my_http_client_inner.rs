@@ -10,8 +10,8 @@ use tokio::{
 use crate::{MyHttpClientDisconnect, MyHttpClientError};
 
 use super::{
-    write_loop::WriteLoopEvent, HttpAwaiterTask, HttpAwaitingTask, MyHttpClientConnectionContext,
-    MyHttpRequest, QueueOfRequests, WebSocketContextModel,
+    HttpAwaiterTask, HttpAwaitingTask, MyHttpClientConnectionContext, MyHttpRequest,
+    QueueOfRequests, WebSocketContextModel,
 };
 
 pub enum WritePartState<
@@ -117,7 +117,6 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         &self,
         connection_id: u64,
         write_stream: WriteHalf<TStream>,
-        write_signal: tokio::sync::mpsc::Sender<WriteLoopEvent>,
         send_to_socket_timeout: std::time::Duration,
     ) {
         let mut state = self.state.lock().await;
@@ -126,13 +125,15 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             panic!("Disposed");
         }
 
+        self.process_disconnect(&mut state, WritePartState::Disconnected)
+            .await;
+
         *state = WritePartState::Connected(MyHttpClientConnectionContext {
             write_stream: Some(write_stream),
             queue_to_deliver: None,
             connection_id,
             queue_of_requests: QueueOfRequests::new(),
             send_to_socket_timeout,
-            write_signal,
             waiting_to_web_socket_upgrade: false,
         });
 
@@ -171,11 +172,6 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             }
         }
 
-        let _ = connection_context
-            .write_signal
-            .send(WriteLoopEvent::Flush)
-            .await;
-
         Ok((awaiter, connection_context.connection_id))
     }
 
@@ -192,7 +188,6 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
                 }
 
                 let result = context.write_stream.take();
-                let _ = context.write_signal.send(WriteLoopEvent::Close).await;
 
                 *state = WritePartState::UpgradedToWebSocket(WebSocketContextModel::new(
                     self.name.clone(),
@@ -296,7 +291,6 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
                 #[cfg(feature = "metrics")]
                 self.metrics.tcp_disconnect(&self.name);
                 if let Some(ctx) = context.write_stream.as_mut() {
-                    let _ = context.write_signal.send(WriteLoopEvent::Close).await;
                     let _ = ctx.shutdown().await;
                 }
                 context.queue_of_requests.notify_connection_lost().await;
@@ -311,7 +305,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         *state = new_status;
     }
 
-    pub async fn read_write_loop_stopped(&self, connection_id: u64) {
+    pub async fn read_loop_stopped(&self, connection_id: u64) {
         let mut state = self.state.lock().await;
 
         let disconnect = match &*state {
