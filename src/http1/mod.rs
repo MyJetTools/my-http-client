@@ -52,4 +52,11 @@ impl HttpParseError {
             _ => false,
         }
     }
+
+    pub fn as_invalid_payload(&self) -> Option<&str> {
+        match self {
+            HttpParseError::InvalidHttpPayload(src) => Some(src.as_str()),
+            _ => None,
+        }
+    }
 }

@@ -102,24 +102,52 @@ impl<
             let inner = inner_cloned.clone();
             #[cfg(feature = "metrics")]
             inner.metrics.read_thread_start(&inner.name);
-            let err = tokio::spawn(super::read_loop::read_loop(
-                reader,
-                current_connection_id,
-                inner_cloned,
-                debug,
-                read_from_stream_timeout,
-            ))
+            let err = tokio::spawn(async move {
+                let resp = super::read_loop::read_loop(
+                    reader,
+                    current_connection_id,
+                    inner_cloned.clone(),
+                    debug,
+                    read_from_stream_timeout,
+                )
+                .await;
+
+                if let Err(err) = &resp {
+                    if let Some(invalid_payload_reason) = err.as_invalid_payload() {
+                        let task = inner_cloned.pop_request(current_connection_id, false).await;
+
+                        if let Some(mut task) = task {
+                            let _ = task.set_error(MyHttpClientError::CanNotExecuteRequest(
+                                invalid_payload_reason.to_string(),
+                            ));
+                        }
+                    }
+                }
+
+                resp
+            })
             .await;
 
             if debug {
                 match err {
                     Ok(ok) => {
                         if let Err(err) = ok {
-                            println!("Read loop exited with error: {:?}", err);
+                            if debug {
+                                println!("Read loop exited with error: {:?}", err);
+                            }
                         }
                     }
                     Err(err) => {
-                        println!("Read loop exited with error: {:?}", err);
+                        if let Some(mut task) =
+                            inner.pop_request(current_connection_id, false).await
+                        {
+                            let _ = task.set_error(MyHttpClientError::CanNotExecuteRequest(
+                                "Request is panicked".to_string(),
+                            ));
+                        }
+                        if debug {
+                            println!("Read loop exited with error: {:?}", err);
+                        }
                     }
                 }
             }
@@ -127,6 +155,7 @@ impl<
             #[cfg(feature = "metrics")]
             inner.metrics.read_thread_stop(&inner.name);
             inner.read_write_loop_stopped(current_connection_id).await;
+            inner.disconnect(current_connection_id).await;
         });
 
         let inner_cloned = self.inner.clone();
