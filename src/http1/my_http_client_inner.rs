@@ -10,8 +10,8 @@ use tokio::{
 use crate::{MyHttpClientDisconnect, MyHttpClientError};
 
 use super::{
-    HttpAwaiterTask, HttpAwaitingTask, MyHttpClientConnectionContext, MyHttpRequest,
-    QueueOfRequests, WebSocketContextModel,
+    write_loop::WriteLoopEvent, HttpAwaiterTask, HttpAwaitingTask, MyHttpClientConnectionContext,
+    MyHttpRequest, QueueOfRequests, WebSocketContextModel,
 };
 
 pub enum WritePartState<
@@ -86,7 +86,10 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
 pub struct MyHttpClientInner<
     TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
 > {
-    state: Mutex<WritePartState<TStream>>,
+    pub state: Mutex<(
+        WritePartState<TStream>,
+        Option<tokio::sync::mpsc::Sender<WriteLoopEvent>>,
+    )>,
     #[cfg(feature = "metrics")]
     pub metrics: Arc<dyn super::MyHttpClientMetrics + Send + Sync + 'static>,
     pub name: Arc<String>,
@@ -102,7 +105,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         >,
     ) -> Self {
         let result = Self {
-            state: Mutex::new(WritePartState::Disconnected),
+            state: Mutex::new((WritePartState::Disconnected, None)),
             #[cfg(feature = "metrics")]
             metrics,
             name: Arc::new(name),
@@ -113,6 +116,11 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         result
     }
 
+    pub async fn set_sender(&self, sender: tokio::sync::mpsc::Sender<WriteLoopEvent>) {
+        let mut state = self.state.lock().await;
+        state.1 = Some(sender);
+    }
+
     pub async fn new_connection(
         &self,
         connection_id: u64,
@@ -121,14 +129,14 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
     ) {
         let mut state = self.state.lock().await;
 
-        if state.is_disposed() {
+        if state.0.is_disposed() {
             panic!("Disposed");
         }
 
-        self.process_disconnect(&mut state, WritePartState::Disconnected)
+        self.process_disconnect(&mut state.0, WritePartState::Disconnected)
             .await;
 
-        *state = WritePartState::Connected(MyHttpClientConnectionContext {
+        state.0 = WritePartState::Connected(MyHttpClientConnectionContext {
             write_stream: Some(write_stream),
             queue_to_deliver: None,
             connection_id,
@@ -143,7 +151,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
 
     pub async fn is_my_connection_id(&self, connection_id: u64) -> bool {
         let state = self.state.lock().await;
-        match &*state {
+        match &state.0 {
             WritePartState::Connected(context) => context.connection_id == connection_id,
             _ => false,
         }
@@ -155,24 +163,35 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
     ) -> Result<(HttpAwaiterTask<TStream>, u64), MyHttpClientError> {
         let mut writer = self.state.lock().await;
 
-        let connection_context = writer.unwrap_as_connected_mut()?;
-        let mut task = TaskCompletion::new();
-        let awaiter = task.get_awaiter();
+        let (awaiter, connection_id) = {
+            let connection_context = writer.0.unwrap_as_connected_mut()?;
+            let mut task = TaskCompletion::new();
+            let awaiter = task.get_awaiter();
 
-        connection_context.queue_of_requests.push(task).await;
+            connection_context.queue_of_requests.push(task).await;
 
-        match connection_context.queue_to_deliver.as_mut() {
-            Some(vec) => {
-                req.write_to(vec);
+            match connection_context.queue_to_deliver.as_mut() {
+                Some(vec) => {
+                    req.write_to(vec);
+                }
+                None => {
+                    let mut vec = Vec::new();
+                    req.write_to(&mut vec);
+                    connection_context.queue_to_deliver = Some(vec);
+                }
             }
-            None => {
-                let mut vec = Vec::new();
-                req.write_to(&mut vec);
-                connection_context.queue_to_deliver = Some(vec);
-            }
-        }
 
-        Ok((awaiter, connection_context.connection_id))
+            (awaiter, connection_context.connection_id)
+        };
+
+        let _ = writer
+            .1
+            .as_ref()
+            .unwrap()
+            .send(WriteLoopEvent::Flush(connection_id))
+            .await;
+
+        Ok((awaiter, connection_id))
     }
 
     pub async fn upgrade_to_websocket(
@@ -181,7 +200,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
     ) -> Result<WriteHalf<TStream>, MyHttpClientError> {
         let mut state = self.state.lock().await;
 
-        match &mut *state {
+        match &mut state.0 {
             WritePartState::Connected(context) => {
                 if context.connection_id != connection_id {
                     return Err(MyHttpClientError::Disconnected);
@@ -189,7 +208,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
 
                 let result = context.write_stream.take();
 
-                *state = WritePartState::UpgradedToWebSocket(WebSocketContextModel::new(
+                state.0 = WritePartState::UpgradedToWebSocket(WebSocketContextModel::new(
                     self.name.clone(),
                     connection_id,
                 ));
@@ -217,7 +236,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         web_socket_upgrade: bool,
     ) -> Option<HttpAwaitingTask<TStream>> {
         let mut state = self.state.lock().await;
-        let result = match &mut *state {
+        let result = match &mut state.0 {
             WritePartState::Connected(context) => {
                 if context.connection_id != connection_id {
                     return None;
@@ -240,7 +259,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
 
         let mut has_error = false;
         if let Some((stream, payload, payload_connection_id, send_to_socket_timeout)) =
-            state.get_payload_to_send()
+            state.0.get_payload_to_send()
         {
             if payload_connection_id != connection_id {
                 return;
@@ -266,18 +285,18 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         }
 
         if has_error {
-            *state = WritePartState::Disconnected;
+            state.0 = WritePartState::Disconnected;
         }
     }
 
     pub async fn disconnect(&self, connection_id: u64) {
         let mut state = self.state.lock().await;
 
-        if !state.is_active_connection(connection_id) {
+        if !state.0.is_active_connection(connection_id) {
             return;
         }
 
-        self.process_disconnect(&mut state, WritePartState::Disconnected)
+        self.process_disconnect(&mut state.0, WritePartState::Disconnected)
             .await;
     }
 
@@ -290,8 +309,8 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             WritePartState::Connected(context) => {
                 #[cfg(feature = "metrics")]
                 self.metrics.tcp_disconnect(&self.name);
-                if let Some(ctx) = context.write_stream.as_mut() {
-                    let _ = ctx.shutdown().await;
+                if let Some(mut write_stream) = context.write_stream.take() {
+                    let _ = write_stream.shutdown().await;
                 }
                 context.queue_of_requests.notify_connection_lost().await;
             }
@@ -308,7 +327,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
     pub async fn read_loop_stopped(&self, connection_id: u64) {
         let mut state = self.state.lock().await;
 
-        let disconnect = match &*state {
+        let disconnect = match &state.0 {
             WritePartState::Connected(ctx) => {
                 if ctx.waiting_to_web_socket_upgrade {
                     false
@@ -322,15 +341,17 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         };
 
         if disconnect {
-            self.process_disconnect(&mut state, WritePartState::Disconnected)
+            self.process_disconnect(&mut state.0, WritePartState::Disconnected)
                 .await;
         }
     }
 
     pub async fn dispose(&self) {
         let mut state = self.state.lock().await;
-        self.process_disconnect(&mut state, WritePartState::Disposed)
+        self.process_disconnect(&mut state.0, WritePartState::Disposed)
             .await;
+
+        let _ = state.1.as_ref().unwrap().send(WriteLoopEvent::Close).await;
     }
 }
 

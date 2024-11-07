@@ -6,7 +6,6 @@ use std::sync::{atomic::AtomicU64, Arc};
 
 use crate::{MyHttpClientConnector, MyHttpClientDisconnect, MyHttpClientError};
 
-use super::write_loop::WriteLoopEvent;
 use super::{HttpTask, IntoMyHttpRequest, MyHttpClientDisconnection, MyHttpRequest};
 
 use super::MyHttpClientInner;
@@ -37,7 +36,6 @@ pub struct MyHttpClient<
     send_to_socket_timeout: std::time::Duration,
     connect_timeout: std::time::Duration,
     read_from_stream_timeout: std::time::Duration,
-    write_signal: Arc<tokio::sync::mpsc::Sender<WriteLoopEvent>>,
 }
 
 impl<
@@ -51,26 +49,11 @@ impl<
             dyn super::MyHttpClientMetrics + Send + Sync + 'static,
         >,
     ) -> Self {
-        let (sender, receiver) = tokio::sync::mpsc::channel(1024);
         let inner = Arc::new(MyHttpClientInner::new(
             connector.get_remote_host().as_str().to_string(),
             #[cfg(feature = "metrics")]
             metrics,
         ));
-
-        let inner_cloned = inner.clone();
-        tokio::spawn(async move {
-            #[cfg(feature = "metrics")]
-            inner_cloned.metrics.write_thread_start(&inner_cloned.name);
-            let _ = tokio::spawn(super::write_loop::write_loop(
-                inner_cloned.clone(),
-                receiver,
-            ))
-            .await;
-
-            #[cfg(feature = "metrics")]
-            inner_cloned.metrics.write_thread_stop(&inner_cloned.name);
-        });
 
         let result = Self {
             inner,
@@ -78,7 +61,6 @@ impl<
             send_to_socket_timeout: std::time::Duration::from_secs(30),
             connect_timeout: std::time::Duration::from_secs(5),
             read_from_stream_timeout: std::time::Duration::from_secs(120),
-            write_signal: Arc::new(sender),
         };
 
         result
@@ -95,6 +77,33 @@ impl<
                 self.connector.get_remote_host().as_str(),
                 self.connect_timeout
             )));
+        }
+
+        let receiver = {
+            let mut state = self.inner.state.lock().await;
+            if state.1.is_none() {
+                let (sender, receiver) = tokio::sync::mpsc::channel(1024);
+                state.1 = Some(sender);
+                Some(receiver)
+            } else {
+                None
+            }
+        };
+
+        if let Some(receiver) = receiver {
+            let inner_cloned = self.inner.clone();
+            tokio::spawn(async move {
+                #[cfg(feature = "metrics")]
+                inner_cloned.metrics.write_thread_start(&inner_cloned.name);
+                let _ = tokio::spawn(super::write_loop::write_loop(
+                    inner_cloned.clone(),
+                    receiver,
+                ))
+                .await;
+
+                #[cfg(feature = "metrics")]
+                inner_cloned.metrics.write_thread_stop(&inner_cloned.name);
+            });
         }
 
         let stream = connect_result.unwrap()?;
@@ -182,10 +191,6 @@ impl<
         loop {
             let err = match self.inner.send(req).await {
                 Ok((awaiter, connection_id)) => {
-                    let _ = self
-                        .write_signal
-                        .send(WriteLoopEvent::Flush(connection_id))
-                        .await;
                     let await_feature = awaiter.get_result();
 
                     let result = tokio::time::timeout(request_timeout, await_feature).await;
@@ -260,10 +265,9 @@ impl<
 {
     fn drop(&mut self) {
         let inner = self.inner.clone();
-        let write_signal = self.write_signal.clone();
+
         tokio::spawn(async move {
             inner.dispose().await;
-            let _ = write_signal.send(WriteLoopEvent::Close).await;
         });
     }
 }
