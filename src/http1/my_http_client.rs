@@ -120,6 +120,7 @@ impl<
                             let _ = task.set_error(MyHttpClientError::CanNotExecuteRequest(
                                 invalid_payload_reason.to_string(),
                             ));
+                            inner_cloned.disconnect(current_connection_id).await;
                         }
                     }
                 }
@@ -144,6 +145,7 @@ impl<
                             let _ = task.set_error(MyHttpClientError::CanNotExecuteRequest(
                                 "Request is panicked".to_string(),
                             ));
+                            inner.disconnect(current_connection_id).await;
                         }
                         if debug {
                             println!("Read loop exited with error: {:?}", err);
@@ -155,7 +157,6 @@ impl<
             #[cfg(feature = "metrics")]
             inner.metrics.read_thread_stop(&inner.name);
             inner.read_write_loop_stopped(current_connection_id).await;
-            inner.disconnect(current_connection_id).await;
         });
 
         let inner_cloned = self.inner.clone();
