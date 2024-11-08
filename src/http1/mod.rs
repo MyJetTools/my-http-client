@@ -10,6 +10,8 @@ mod queue_of_requests;
 mod read_loop;
 mod write_loop;
 pub use queue_of_requests::*;
+mod my_http_response;
+pub use my_http_response::*;
 
 mod my_http_request;
 pub use my_http_request::*;

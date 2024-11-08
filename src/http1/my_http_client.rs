@@ -1,12 +1,10 @@
-use bytes::Bytes;
-
-use http_body_util::combinators::BoxBody;
-
 use std::sync::{atomic::AtomicU64, Arc};
 
-use crate::{MyHttpClientConnector, MyHttpClientDisconnect, MyHttpClientError};
+use crate::{MyHttpClientConnector, MyHttpClientError};
 
-use super::{HttpTask, IntoMyHttpRequest, MyHttpClientDisconnection, MyHttpRequest};
+use super::{
+    HttpTask, IntoMyHttpRequest, MyHttpClientDisconnection, MyHttpRequest, MyHttpResponse,
+};
 
 use super::MyHttpClientInner;
 
@@ -14,17 +12,6 @@ lazy_static::lazy_static! {
     pub static ref CONNECTION_ID: Arc<AtomicU64> = {
         Arc::new(AtomicU64::new(0))
     };
-}
-
-pub enum MyHttpResponse<
-    TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
-> {
-    Response(hyper::Response<BoxBody<Bytes, String>>),
-    WebSocketUpgrade {
-        stream: TStream,
-        response: hyper::Response<BoxBody<Bytes, String>>,
-        disconnection: Arc<dyn MyHttpClientDisconnect + Send + Sync + 'static>,
-    },
 }
 
 pub struct MyHttpClient<
