@@ -10,7 +10,7 @@ pub enum BodyReader {
         body_size: usize,
     },
     Chunked {
-        response: crate::MyHttpResponse,
+        response: crate::HyperResponse,
         sender: ChunksSender,
     },
     WebSocketUpgrade(WebSocketUpgradeBuilder),

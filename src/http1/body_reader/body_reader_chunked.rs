@@ -187,7 +187,7 @@ fn from_hex_number(c: u8) -> Option<usize> {
 
 pub fn create_chunked_body_response(
     builder: http::response::Builder,
-) -> (ChunksSender, crate::MyHttpResponse) {
+) -> (ChunksSender, crate::HyperResponse) {
     let (sender, receiver) = futures::channel::mpsc::channel(1024);
     let stream_body = StreamBody::new(receiver);
 
