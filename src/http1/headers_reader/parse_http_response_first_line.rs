@@ -19,9 +19,10 @@ pub fn parse_http_response_first_line(src: &[u8]) -> Result<(StatusCode, Version
         "HTTP/1.0" => http::Version::HTTP_10,
         "HTTP/1.1" => http::Version::HTTP_11,
         _ => {
+            print!("Http line is: [{}]", src);
             return Err(HttpParseError::InvalidHttpPayload(
-                format!("Not supported HTTP protocol. [{}]", protocol_version).into(),
-            ))
+                format!("Not supported HTTP protocol. [{}].", protocol_version).into(),
+            ));
         }
     };
 
