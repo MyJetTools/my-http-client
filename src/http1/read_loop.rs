@@ -18,6 +18,7 @@ pub async fn read_loop<
     let mut tcp_buffer = TcpBuffer::new();
 
     let print_input_http_stream = if let Ok(value) = std::env::var("DEBUG_HTTP_INPUT_STREAM") {
+        println!("http_client_name: {}", inner.name.as_str());
         value.as_str() == inner.name.as_str()
     } else {
         false
