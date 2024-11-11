@@ -266,8 +266,6 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             }
 
             for chunk in payload.chunks(1024 * 1024) {
-                println!("Req chunk: {:?}", std::str::from_utf8(chunk));
-
                 let future = stream.write_all(chunk);
 
                 let result = tokio::time::timeout(send_to_socket_timeout, future).await;
