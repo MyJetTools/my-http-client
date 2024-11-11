@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use http::{Method, Uri, Version};
+use http::{Method, Version};
 use http_body_util::{BodyExt, Full};
 use std::fmt::Write;
 
@@ -11,13 +11,13 @@ pub struct MyHttpRequest {
 impl MyHttpRequest {
     pub fn new<Headers: crate::MyHttpClientHeaders>(
         method: Method,
-        uri: &Uri,
+        path_and_query: &str,
         version: Version,
         headers_src: &Headers,
         body: Bytes,
     ) -> Self {
         let mut result = Self {
-            headers: create_headers(method, uri, version).into_bytes(),
+            headers: create_headers(method, path_and_query, version).into_bytes(),
             body,
         };
 
@@ -48,7 +48,20 @@ impl IntoMyHttpRequest for hyper::Request<Full<Bytes>> {
     async fn into_request(self) -> MyHttpRequest {
         let (parts, body) = self.into_parts();
 
-        let mut headers = create_headers(parts.method, &parts.uri, parts.version);
+        let mut headers = String::new();
+
+        write!(
+            &mut headers,
+            "{} {} {:?}\r\n",
+            parts.method,
+            parts
+                .uri
+                .path_and_query()
+                .map(|pq| pq.as_str())
+                .unwrap_or("/"),
+            parts.version
+        )
+        .unwrap();
 
         for (name, value) in parts.headers.iter() {
             write!(&mut headers, "{}: {}\r\n", name, value.to_str().unwrap()).unwrap();
@@ -66,15 +79,13 @@ impl IntoMyHttpRequest for hyper::Request<Full<Bytes>> {
     }
 }
 
-fn create_headers(method: Method, uri: &Uri, version: Version) -> String {
+fn create_headers(method: Method, path_and_query: &str, version: Version) -> String {
     let mut headers = String::new();
 
     write!(
         &mut headers,
         "{} {} {:?}\r\n",
-        method,
-        uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/"),
-        version
+        method, path_and_query, version
     )
     .unwrap();
 
