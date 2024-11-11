@@ -14,10 +14,7 @@ impl MyHttpClientHeadersBuilder {
     }
 
     pub fn add_header(&mut self, name: &str, value: &str) {
-        self.headers.extend_from_slice(name.as_bytes());
-        self.headers.extend_from_slice(": ".as_bytes());
-        self.headers.extend_from_slice(value.as_bytes());
-        self.headers.extend_from_slice("\r\n".as_bytes());
+        write_header(&mut self.headers, name, value);
     }
 
     pub fn iter(&self) -> MyHttpClientHeadersBuilderIterator {
@@ -108,4 +105,11 @@ mod tests {
 
         assert!(iter.next().is_none());
     }
+}
+
+pub fn write_header(dest: &mut Vec<u8>, name: &str, value: &str) {
+    dest.extend_from_slice(name.as_bytes());
+    dest.extend_from_slice(": ".as_bytes());
+    dest.extend_from_slice(value.as_bytes());
+    dest.extend_from_slice(crate::CL_CR);
 }

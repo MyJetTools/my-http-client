@@ -13,3 +13,5 @@ pub use my_http_client_disconnect::*;
 pub type HyperResponse = http::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>;
 mod headers;
 pub use headers::*;
+
+const CL_CR: &[u8] = b"\r\n";

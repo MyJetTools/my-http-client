@@ -14,14 +14,24 @@ impl MyHttpRequest {
         path_and_query: &str,
         version: Version,
         headers_src: &Headers,
-        body: Bytes,
+        body: Vec<u8>,
     ) -> Self {
         let mut result = Self {
             headers: create_headers(method, path_and_query, version).into_bytes(),
-            body,
+            body: body.into(),
         };
 
         headers_src.copy_to(&mut result.headers);
+
+        if result.body.len() > 0 {
+            crate::headers::write_header(
+                &mut result.headers,
+                "Content-Length",
+                result.body.len().to_string().as_str(),
+            );
+        }
+
+        result.headers.extend_from_slice(crate::CL_CR);
 
         result
     }

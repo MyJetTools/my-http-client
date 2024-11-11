@@ -1,9 +1,6 @@
-use bytes::Bytes;
 use http::Method;
 
 use super::MyHttpRequest;
-
-const CL_CR: &[u8] = b"\r\n";
 
 pub struct MyHttpRequestBuilder {
     headers: Vec<u8>,
@@ -17,7 +14,7 @@ impl MyHttpRequestBuilder {
         headers.extend_from_slice(path_and_query.as_bytes());
         headers.push(b' ');
         headers.extend_from_slice(b"HTTP/1.1\r\n");
-        headers.extend_from_slice(CL_CR);
+        headers.extend_from_slice(crate::CL_CR);
         Self { headers }
     }
 
@@ -26,7 +23,7 @@ impl MyHttpRequestBuilder {
         self.headers.push(b':');
         self.headers.push(b' ');
         self.headers.extend_from_slice(value.as_bytes());
-        self.headers.extend_from_slice(CL_CR);
+        self.headers.extend_from_slice(crate::CL_CR);
     }
 
     pub fn build_with_body(mut self, body: Vec<u8>) -> MyHttpRequest {
@@ -43,7 +40,7 @@ impl MyHttpRequestBuilder {
     pub fn build(self) -> MyHttpRequest {
         MyHttpRequest {
             headers: self.headers,
-            body: Bytes::new(),
+            body: Vec::new().into(),
         }
     }
 }
