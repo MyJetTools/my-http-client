@@ -17,20 +17,31 @@ pub async fn read_loop<
 
     let mut tcp_buffer = TcpBuffer::new();
 
+    let print_input_http_stream = if let Ok(value) = std::env::var("DEBUG_HTTP_INPUT_STREAM") {
+        value.as_str() == inner.name.as_str()
+    } else {
+        false
+    };
     while inner.is_my_connection_id(connection_id).await {
         if do_read_to_buffer || tcp_buffer.is_empty() {
             super::read_with_timeout::read_to_buffer(
                 &mut read_stream,
                 &mut tcp_buffer,
                 read_timeout,
+                print_input_http_stream,
             )
             .await?;
 
             do_read_to_buffer = false;
         }
 
-        match super::headers_reader::read_headers(&mut read_stream, &mut tcp_buffer, read_timeout)
-            .await
+        match super::headers_reader::read_headers(
+            &mut read_stream,
+            &mut tcp_buffer,
+            read_timeout,
+            print_input_http_stream,
+        )
+        .await
         {
             Ok(body_reader) => match body_reader {
                 BodyReader::LengthBased { builder, body_size } => {
@@ -67,6 +78,7 @@ pub async fn read_loop<
                         &mut tcp_buffer,
                         sender,
                         read_timeout,
+                        print_input_http_stream,
                     )
                     .await?;
                 }

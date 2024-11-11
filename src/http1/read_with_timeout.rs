@@ -8,6 +8,7 @@ pub async fn read_to_buffer<TStream: tokio::io::AsyncRead>(
     read: &mut ReadHalf<TStream>,
     tcp_buffer: &mut TcpBuffer,
     read_time_out: Duration,
+    print_http_payload: bool,
 ) -> Result<(), HttpParseError> {
     let write_buf = match tcp_buffer.get_write_buf() {
         Some(write_buf) => write_buf,
@@ -41,6 +42,11 @@ pub async fn read_to_buffer<TStream: tokio::io::AsyncRead>(
             }
 
             tcp_buffer.add_read_amount(result);
+
+            if print_http_payload {
+                let buf = tcp_buffer.get_buf();
+                println!("Resp: [{:?}]", std::str::from_utf8(buf));
+            }
 
             return Ok(());
         }
@@ -91,6 +97,7 @@ pub async fn skip_exactly<TStream: tokio::io::AsyncRead>(
     tcp_buffer: &mut TcpBuffer,
     size_to_skip: usize,
     read_timeout: Duration,
+    print_input_http_stream: bool,
 ) -> Result<(), HttpParseError> {
     loop {
         match tcp_buffer.skip_exactly(size_to_skip) {
@@ -98,7 +105,13 @@ pub async fn skip_exactly<TStream: tokio::io::AsyncRead>(
                 return Ok(());
             }
             Err(HttpParseError::GetMoreData) => {
-                read_to_buffer(read_stream, tcp_buffer, read_timeout).await?;
+                read_to_buffer(
+                    read_stream,
+                    tcp_buffer,
+                    read_timeout,
+                    print_input_http_stream,
+                )
+                .await?;
             }
             Err(err) => return Err(err),
         }
@@ -110,12 +123,19 @@ pub async fn read_until_crlf<TResult, TStream: tokio::io::AsyncRead>(
     tcp_buffer: &mut TcpBuffer,
     read_timeout: Duration,
     conversion: impl Fn(&[u8]) -> Result<TResult, HttpParseError>,
+    print_input_http_stream: bool,
 ) -> Result<TResult, HttpParseError> {
     loop {
         match tcp_buffer.read_until_crlf() {
             Some(as_str) => return conversion(as_str),
             None => {
-                read_to_buffer(read_stream, tcp_buffer, read_timeout).await?;
+                read_to_buffer(
+                    read_stream,
+                    tcp_buffer,
+                    read_timeout,
+                    print_input_http_stream,
+                )
+                .await?;
             }
         }
     }

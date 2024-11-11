@@ -6,12 +6,14 @@ pub async fn read_headers<TStream: tokio::io::AsyncRead>(
     read_stream: &mut ReadHalf<TStream>,
     tcp_buffer: &mut TcpBuffer,
     read_timeout: Duration,
+    print_input_http_stream: bool,
 ) -> Result<BodyReader, HttpParseError> {
     let (status_code, version) = super::super::read_with_timeout::read_until_crlf(
         read_stream,
         tcp_buffer,
         read_timeout,
         |line| super::parse_http_response_first_line(line),
+        print_input_http_stream,
     )
     .await?;
 
@@ -35,6 +37,7 @@ pub async fn read_headers<TStream: tokio::io::AsyncRead>(
                     read_stream,
                     tcp_buffer,
                     read_timeout,
+                    print_input_http_stream,
                 )
                 .await?;
                 continue;

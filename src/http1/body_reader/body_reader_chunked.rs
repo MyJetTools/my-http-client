@@ -202,6 +202,7 @@ pub async fn read_chunked_body<TStream: tokio::io::AsyncRead>(
     tcp_buffer: &mut TcpBuffer,
     mut sender: futures::channel::mpsc::Sender<Result<hyper::body::Frame<Bytes>, hyper::Error>>,
     read_timeout: Duration,
+    print_input_http_stream: bool,
 ) -> Result<(), HttpParseError> {
     use futures::SinkExt;
     loop {
@@ -210,12 +211,19 @@ pub async fn read_chunked_body<TStream: tokio::io::AsyncRead>(
             tcp_buffer,
             read_timeout,
             |str| parse_chunk_size(str),
+            print_input_http_stream,
         )
         .await?;
 
         if chunk_size == 0 {
-            super::super::read_with_timeout::skip_exactly(read_stream, tcp_buffer, 2, read_timeout)
-                .await?;
+            super::super::read_with_timeout::skip_exactly(
+                read_stream,
+                tcp_buffer,
+                2,
+                read_timeout,
+                print_input_http_stream,
+            )
+            .await?;
 
             return Ok(());
         }
@@ -254,8 +262,14 @@ pub async fn read_chunked_body<TStream: tokio::io::AsyncRead>(
             ));
         }
 
-        super::super::read_with_timeout::skip_exactly(read_stream, tcp_buffer, 2, read_timeout)
-            .await?;
+        super::super::read_with_timeout::skip_exactly(
+            read_stream,
+            tcp_buffer,
+            2,
+            read_timeout,
+            print_input_http_stream,
+        )
+        .await?;
     }
 }
 
