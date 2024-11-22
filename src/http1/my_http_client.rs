@@ -2,9 +2,7 @@ use std::sync::{atomic::AtomicU64, Arc};
 
 use crate::{MyHttpClientConnector, MyHttpClientError};
 
-use super::{
-    HttpTask, IntoMyHttpRequest, MyHttpClientDisconnection, MyHttpRequest, MyHttpResponse,
-};
+use super::{HttpTask, MyHttpClientDisconnection, MyHttpRequestContent, MyHttpResponse};
 
 use super::MyHttpClientInner;
 
@@ -170,13 +168,13 @@ impl<
         Ok(())
     }
 
-    async fn send_payload(
+    async fn send_payload<TRequest: MyHttpRequestContent + Send + Sync + 'static>(
         &self,
-        req: &MyHttpRequest,
+        request: &TRequest,
         request_timeout: std::time::Duration,
     ) -> Result<(HttpTask<TStream>, u64), MyHttpClientError> {
         loop {
-            let err = match self.inner.send(req).await {
+            let err = match self.inner.send(request).await {
                 Ok((awaiter, connection_id)) => {
                     let await_feature = awaiter.get_result();
 
@@ -205,14 +203,12 @@ impl<
         }
     }
 
-    pub async fn do_request(
+    pub async fn do_request<TRequest: MyHttpRequestContent + Send + Sync + 'static>(
         &self,
-        req: impl IntoMyHttpRequest,
+        req: &TRequest,
         request_timeout: std::time::Duration,
     ) -> Result<MyHttpResponse<TStream>, MyHttpClientError> {
-        let req = req.into_request().await;
-
-        let response = self.send_payload(&req, request_timeout).await;
+        let response = self.send_payload(req, request_timeout).await;
 
         let (task, connection_id) = match response {
             Ok(task) => task,
