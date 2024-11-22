@@ -11,7 +11,7 @@ use crate::{MyHttpClientDisconnect, MyHttpClientError};
 
 use super::{
     write_loop::WriteLoopEvent, HttpAwaiterTask, HttpAwaitingTask, MyHttpClientConnectionContext,
-    MyHttpRequestContent, QueueOfRequests, WebSocketContextModel,
+    MyHttpRequest, QueueOfRequests, WebSocketContextModel,
 };
 
 pub enum WritePartState<
@@ -157,9 +157,9 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         }
     }
 
-    pub async fn send<TRequest: MyHttpRequestContent + Send + Sync + 'static>(
+    pub async fn send(
         &self,
-        req: &TRequest,
+        req: &MyHttpRequest,
     ) -> Result<(HttpAwaiterTask<TStream>, u64), MyHttpClientError> {
         let mut writer = self.state.lock().await;
 
@@ -172,11 +172,11 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
 
             match connection_context.queue_to_deliver.as_mut() {
                 Some(vec) => {
-                    req.write_to(vec).await;
+                    req.write_to(vec);
                 }
                 None => {
                     let mut vec = Vec::new();
-                    req.write_to(&mut vec).await;
+                    req.write_to(&mut vec);
                     connection_context.queue_to_deliver = Some(vec);
                 }
             }

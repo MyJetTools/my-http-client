@@ -3,11 +3,6 @@ use http::{Method, Version};
 use http_body_util::{BodyExt, Full};
 use std::fmt::Write;
 
-#[async_trait::async_trait]
-pub trait MyHttpRequestContent {
-    async fn write_to(&self, writer: &mut Vec<u8>);
-}
-
 pub struct MyHttpRequest {
     pub(crate) headers: Vec<u8>,
     pub(crate) body: Bytes,
@@ -40,22 +35,9 @@ impl MyHttpRequest {
 
         result
     }
-}
 
-#[async_trait::async_trait]
-impl MyHttpRequestContent for MyHttpRequest {
-    async fn write_to(&self, writer: &mut Vec<u8>) {
-        writer.extend_from_slice(&self.headers);
-        writer.extend_from_slice(&self.body);
-    }
-}
-
-#[async_trait::async_trait]
-impl MyHttpRequestContent for hyper::Request<Full<Bytes>> {
-    async fn write_to(&self, writer: &mut Vec<u8>) {
-        let body = self.clone();
-
-        let (parts, body) = body.into_parts();
+    pub async fn from_hyper_request(req: hyper::Request<Full<Bytes>>) -> Self {
+        let (parts, body) = req.into_parts();
 
         let headers = create_headers(
             parts.method,
@@ -67,13 +49,20 @@ impl MyHttpRequestContent for hyper::Request<Full<Bytes>> {
             parts.version,
         );
 
-        writer.extend_from_slice(headers.as_bytes());
-
-        writer.extend_from_slice(crate::CL_CR);
+        let mut headers = headers.into_bytes();
+        headers.extend_from_slice(crate::CL_CR);
 
         let body_as_bytes = body.collect().await.unwrap().to_bytes();
 
-        writer.extend(body_as_bytes);
+        Self {
+            headers,
+            body: body_as_bytes,
+        }
+    }
+
+    pub fn write_to(&self, writer: &mut Vec<u8>) {
+        writer.extend_from_slice(&self.headers);
+        writer.extend_from_slice(&self.body);
     }
 }
 

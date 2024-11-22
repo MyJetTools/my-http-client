@@ -2,7 +2,7 @@ use std::sync::{atomic::AtomicU64, Arc};
 
 use crate::{MyHttpClientConnector, MyHttpClientError};
 
-use super::{HttpTask, MyHttpClientDisconnection, MyHttpRequestContent, MyHttpResponse};
+use super::{HttpTask, MyHttpClientDisconnection, MyHttpRequest, MyHttpResponse};
 
 use super::MyHttpClientInner;
 
@@ -168,9 +168,9 @@ impl<
         Ok(())
     }
 
-    async fn send_payload<TRequest: MyHttpRequestContent + Send + Sync + 'static>(
+    async fn send_payload(
         &self,
-        request: &TRequest,
+        request: &MyHttpRequest,
         request_timeout: std::time::Duration,
     ) -> Result<(HttpTask<TStream>, u64), MyHttpClientError> {
         loop {
@@ -203,9 +203,9 @@ impl<
         }
     }
 
-    pub async fn do_request<TRequest: MyHttpRequestContent + Send + Sync + 'static>(
+    pub async fn do_request(
         &self,
-        req: &TRequest,
+        req: &MyHttpRequest,
         request_timeout: std::time::Duration,
     ) -> Result<MyHttpResponse<TStream>, MyHttpClientError> {
         let response = self.send_payload(req, request_timeout).await;
