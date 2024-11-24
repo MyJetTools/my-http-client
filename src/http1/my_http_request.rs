@@ -4,8 +4,8 @@ use http_body_util::{BodyExt, Full};
 use std::fmt::Write;
 
 pub struct MyHttpRequest {
-    pub(crate) headers: Vec<u8>,
-    pub(crate) body: Bytes,
+    pub headers: Vec<u8>,
+    pub body: Bytes,
 }
 
 impl MyHttpRequest {
@@ -50,6 +50,15 @@ impl MyHttpRequest {
         );
 
         let mut headers = headers.into_bytes();
+
+        for header in parts.headers.iter() {
+            crate::headers::write_header(
+                &mut headers,
+                header.0.as_str(),
+                header.1.to_str().unwrap(),
+            );
+        }
+
         headers.extend_from_slice(crate::CL_CR);
 
         let body_as_bytes = body.collect().await.unwrap().to_bytes();
