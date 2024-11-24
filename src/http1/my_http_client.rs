@@ -28,16 +28,33 @@ impl<
         TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
     > MyHttpClient<TStream, TConnector>
 {
-    pub fn new(
+    pub fn new(connector: TConnector) -> Self {
+        let inner = Arc::new(MyHttpClientInner::new(
+            connector.get_remote_host().as_str().to_string(),
+            #[cfg(feature = "metrics")]
+            None,
+        ));
+
+        let result = Self {
+            inner,
+            connector,
+            send_to_socket_timeout: std::time::Duration::from_secs(30),
+            connect_timeout: std::time::Duration::from_secs(5),
+            read_from_stream_timeout: std::time::Duration::from_secs(120),
+        };
+
+        result
+    }
+
+    #[cfg(feature = "metrics")]
+    pub fn new_with_metrics(
         connector: TConnector,
-        #[cfg(feature = "metrics")] metrics: Arc<
-            dyn super::MyHttpClientMetrics + Send + Sync + 'static,
-        >,
+        metrics: Arc<dyn super::MyHttpClientMetrics + Send + Sync + 'static>,
     ) -> Self {
         let inner = Arc::new(MyHttpClientInner::new(
             connector.get_remote_host().as_str().to_string(),
             #[cfg(feature = "metrics")]
-            metrics,
+            Some(metrics),
         ));
 
         let result = Self {
@@ -79,7 +96,10 @@ impl<
             let inner_cloned = self.inner.clone();
             tokio::spawn(async move {
                 #[cfg(feature = "metrics")]
-                inner_cloned.metrics.write_thread_start(&inner_cloned.name);
+                if let Some(metrics) = &inner_cloned.metrics {
+                    metrics.write_thread_start(&inner_cloned.name);
+                }
+
                 let _ = tokio::spawn(super::write_loop::write_loop(
                     inner_cloned.clone(),
                     receiver,
@@ -87,7 +107,9 @@ impl<
                 .await;
 
                 #[cfg(feature = "metrics")]
-                inner_cloned.metrics.write_thread_stop(&inner_cloned.name);
+                if let Some(metrics) = &inner_cloned.metrics {
+                    metrics.write_thread_stop(&inner_cloned.name);
+                }
             });
         }
 
@@ -108,7 +130,9 @@ impl<
         tokio::spawn(async move {
             let inner = inner_cloned.clone();
             #[cfg(feature = "metrics")]
-            inner.metrics.read_thread_start(&inner.name);
+            if let Some(metrics) = &inner_cloned.metrics {
+                metrics.read_thread_start(&inner.name);
+            }
             let err = tokio::spawn(async move {
                 let resp = super::read_loop::read_loop(
                     reader,
@@ -162,7 +186,9 @@ impl<
             }
 
             #[cfg(feature = "metrics")]
-            inner.metrics.read_thread_stop(&inner.name);
+            if let Some(metrics) = &inner.metrics {
+                metrics.read_thread_stop(&inner.name);
+            }
         });
 
         Ok(())

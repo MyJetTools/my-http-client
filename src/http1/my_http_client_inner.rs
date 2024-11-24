@@ -91,7 +91,7 @@ pub struct MyHttpClientInner<
         Option<tokio::sync::mpsc::Sender<WriteLoopEvent>>,
     )>,
     #[cfg(feature = "metrics")]
-    pub metrics: Arc<dyn super::MyHttpClientMetrics + Send + Sync + 'static>,
+    pub metrics: Option<Arc<dyn super::MyHttpClientMetrics + Send + Sync + 'static>>,
     pub name: Arc<String>,
 }
 
@@ -100,8 +100,8 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
 {
     pub fn new(
         name: String,
-        #[cfg(feature = "metrics")] metrics: Arc<
-            dyn super::MyHttpClientMetrics + Send + Sync + 'static,
+        #[cfg(feature = "metrics")] metrics: Option<
+            Arc<dyn super::MyHttpClientMetrics + Send + Sync + 'static>,
         >,
     ) -> Self {
         let result = Self {
@@ -112,7 +112,9 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         };
 
         #[cfg(feature = "metrics")]
-        result.metrics.instance_created(&result.name);
+        if let Some(metrics) = &result.metrics {
+            metrics.instance_created(&result.name);
+        }
         result
     }
 
@@ -146,7 +148,9 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         });
 
         #[cfg(feature = "metrics")]
-        self.metrics.tcp_connect(&self.name);
+        if let Some(metrics) = self.metrics.as_ref() {
+            metrics.tcp_connect(&self.name);
+        }
     }
 
     pub async fn is_my_connection_id(&self, connection_id: u64) -> bool {
@@ -214,8 +218,9 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
                 ));
 
                 #[cfg(feature = "metrics")]
-                self.metrics.upgraded_to_websocket(&self.name);
-
+                if let Some(metrics) = self.metrics.as_ref() {
+                    metrics.upgraded_to_websocket(&self.name);
+                }
                 Ok(result.unwrap())
             }
             WritePartState::UpgradedToWebSocket(_) => {
@@ -308,15 +313,20 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         match &mut *state {
             WritePartState::Connected(context) => {
                 #[cfg(feature = "metrics")]
-                self.metrics.tcp_disconnect(&self.name);
+                if let Some(metrics) = self.metrics.as_ref() {
+                    metrics.tcp_disconnect(&self.name);
+                }
                 if let Some(mut write_stream) = context.write_stream.take() {
                     let _ = write_stream.shutdown().await;
                 }
                 context.queue_of_requests.notify_connection_lost().await;
             }
-            WritePartState::UpgradedToWebSocket(_) => {
+            WritePartState::UpgradedToWebSocket(_) =>
+            {
                 #[cfg(feature = "metrics")]
-                self.metrics.tcp_disconnect(&self.name);
+                if let Some(metrics) = self.metrics.as_ref() {
+                    metrics.tcp_disconnect(&self.name);
+                }
             }
             _ => {}
         }
@@ -362,7 +372,9 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
     for MyHttpClientInner<TStream>
 {
     fn drop(&mut self) {
-        self.metrics.instance_disposed(&self.name);
+        if let Some(metrics) = self.metrics.as_ref() {
+            metrics.instance_disposed(&self.name);
+        }
     }
 }
 
@@ -398,9 +410,9 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
 
     fn web_socket_disconnect(&self) {
         #[cfg(feature = "metrics")]
-        self.inner
-            .metrics
-            .websocket_is_disconnected(&self.inner.name);
+        if let Some(metrics) = self.inner.metrics.as_ref() {
+            metrics.websocket_is_disconnected(&self.inner.name);
+        }
 
         let inner = self.inner.clone();
         let connection_id = self.connection_id;
