@@ -39,7 +39,10 @@ impl<
         Self {
             inner: Arc::new(MyHttp2ClientInner::new(
                 #[cfg(feature = "metrics")]
-                connector.get_remote_host_port().to_string(),
+                connector
+                    .get_remote_endpoint()
+                    .get_host_port(Some(80))
+                    .to_string(),
                 #[cfg(feature = "metrics")]
                 metrics,
             )),
@@ -123,10 +126,12 @@ impl<
 
         let connect_result = tokio::time::timeout(self.connect_timeout, feature).await;
 
+        let remote_host_port = self.connector.get_remote_endpoint().get_host_port(Some(80));
+
         if connect_result.is_err() {
             return Err(MyHttpClientError::CanNotConnectToRemoteHost(format!(
                 "Can not connect to Http2 remote endpoint: '{}' Timeout: {:?}",
-                self.connector.get_remote_host_port().as_str(),
+                remote_host_port.as_str(),
                 self.connect_timeout
             )));
         }
@@ -135,7 +140,7 @@ impl<
 
         let send_request = super::wrap_http2_endpoint::wrap_http2_endpoint(
             stream,
-            self.connector.get_remote_host_port().as_str(),
+            remote_host_port.as_str(),
             self.inner.clone(),
             connection_id,
         )

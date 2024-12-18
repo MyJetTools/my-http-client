@@ -30,7 +30,10 @@ impl<
 {
     pub fn new(connector: TConnector) -> Self {
         let inner = Arc::new(MyHttpClientInner::new(
-            connector.get_remote_host_port().to_string(),
+            connector
+                .get_remote_endpoint()
+                .get_host_port(Some(80))
+                .to_string(),
             #[cfg(feature = "metrics")]
             None,
         ));
@@ -52,7 +55,10 @@ impl<
         metrics: Arc<dyn super::MyHttpClientMetrics + Send + Sync + 'static>,
     ) -> Self {
         let inner = Arc::new(MyHttpClientInner::new(
-            connector.get_remote_host_port().to_string(),
+            connector
+                .get_remote_endpoint()
+                .get_host_port(Some(80))
+                .to_string(),
             #[cfg(feature = "metrics")]
             Some(metrics),
         ));
@@ -76,7 +82,10 @@ impl<
         if connect_result.is_err() {
             return Err(MyHttpClientError::CanNotConnectToRemoteHost(format!(
                 "Can not connect to remote endpoint: '{}' Timeout: {:?}",
-                self.connector.get_remote_host_port().as_str(),
+                self.connector
+                    .get_remote_endpoint()
+                    .get_host_port(Some(80))
+                    .as_str(),
                 self.connect_timeout
             )));
         }
