@@ -39,7 +39,7 @@ impl<
         Self {
             inner: Arc::new(MyHttp2ClientInner::new(
                 #[cfg(feature = "metrics")]
-                connector.get_remote_host().to_string(),
+                connector.get_remote_host_port().to_string(),
                 #[cfg(feature = "metrics")]
                 metrics,
             )),

@@ -52,7 +52,7 @@ impl<
         metrics: Arc<dyn super::MyHttpClientMetrics + Send + Sync + 'static>,
     ) -> Self {
         let inner = Arc::new(MyHttpClientInner::new(
-            connector.get_remote_host().as_str().to_string(),
+            connector.get_remote_host_port().to_string(),
             #[cfg(feature = "metrics")]
             Some(metrics),
         ));
