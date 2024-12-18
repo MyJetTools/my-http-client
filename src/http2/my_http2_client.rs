@@ -125,7 +125,7 @@ impl<
 
         if connect_result.is_err() {
             return Err(MyHttpClientError::CanNotConnectToRemoteHost(format!(
-                "Can not connect to Http2 remote endpoint: {}. Timeout: {:?}",
+                "Can not connect to Http2 remote endpoint: '{}' Timeout: {:?}",
                 self.connector.get_remote_host().as_str(),
                 self.connect_timeout
             )));

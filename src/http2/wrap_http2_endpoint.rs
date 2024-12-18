@@ -37,7 +37,7 @@ pub async fn wrap_http2_endpoint<
 
             if let Err(err) = sender.ready().await {
                 return Err(MyHttpClientError::CanNotConnectToRemoteHost(format!(
-                    "Can not establish Http2 connection to {remote_host}. Reading awaiting is finished with {}",
+                    "Can not establish Http2 connection to '{remote_host}'. Reading awaiting is finished with {}",
                     err
                 )));
             }
@@ -46,7 +46,7 @@ pub async fn wrap_http2_endpoint<
         }
         Err(err) => {
             return Err(MyHttpClientError::CanNotConnectToRemoteHost(format!(
-                "Can not establish Http2 connection to {remote_host}. Http2 handshake Error: {}",
+                "Can not establish Http2 connection to '{remote_host}'. Http2 handshake Error: {}",
                 err
             )));
         }
