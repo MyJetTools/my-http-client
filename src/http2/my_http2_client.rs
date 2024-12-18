@@ -126,7 +126,7 @@ impl<
         if connect_result.is_err() {
             return Err(MyHttpClientError::CanNotConnectToRemoteHost(format!(
                 "Can not connect to Http2 remote endpoint: '{}' Timeout: {:?}",
-                self.connector.get_remote_host().as_str(),
+                self.connector.get_remote_host_port().as_str(),
                 self.connect_timeout
             )));
         }
@@ -135,7 +135,7 @@ impl<
 
         let send_request = super::wrap_http2_endpoint::wrap_http2_endpoint(
             stream,
-            self.connector.get_remote_host().as_str(),
+            self.connector.get_remote_host_port().as_str(),
             self.inner.clone(),
             connection_id,
         )
