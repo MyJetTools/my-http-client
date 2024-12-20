@@ -14,7 +14,6 @@ impl MyHttpRequestBuilder {
         headers.extend_from_slice(path_and_query.as_bytes());
         headers.push(b' ');
         headers.extend_from_slice(b"HTTP/1.1\r\n");
-        headers.extend_from_slice(crate::CL_CR);
         Self { headers }
     }
 
