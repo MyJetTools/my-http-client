@@ -71,6 +71,7 @@ impl MyHttpRequest {
 
     pub fn write_to(&self, writer: &mut Vec<u8>) {
         writer.extend_from_slice(&self.headers);
+        writer.extend_from_slice(crate::CL_CR);
         writer.extend_from_slice(&self.body);
     }
 }
