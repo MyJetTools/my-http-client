@@ -31,8 +31,6 @@ impl MyHttpRequest {
             );
         }
 
-        result.headers.extend_from_slice(crate::CL_CR);
-
         result
     }
 
@@ -58,8 +56,6 @@ impl MyHttpRequest {
                 header.1.to_str().unwrap(),
             );
         }
-
-        headers.extend_from_slice(crate::CL_CR);
 
         let body_as_bytes = body.collect().await.unwrap().to_bytes();
 
