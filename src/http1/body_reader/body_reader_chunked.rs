@@ -48,7 +48,9 @@ pub async fn read_chunked_body<TStream: tokio::io::AsyncRead>(
         )
         .await?;
 
-        println!("Read body chunk size: {}", chunk_size);
+        if print_input_http_stream {
+            println!("Read body chunk size: {}", chunk_size);
+        }
 
         if chunk_size == 0 {
             super::super::read_with_timeout::skip_exactly(
