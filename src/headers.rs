@@ -2,6 +2,11 @@ pub trait MyHttpClientHeaders {
     fn copy_to(&self, buf: &mut Vec<u8>);
 }
 
+pub struct HeaderValuePosition {
+    pub start: usize,
+    pub end: usize,
+}
+
 pub struct MyHttpClientHeadersBuilder {
     headers: Vec<u8>,
 }
@@ -13,8 +18,14 @@ impl MyHttpClientHeadersBuilder {
         }
     }
 
-    pub fn add_header(&mut self, name: &str, value: &str) {
-        write_header(&mut self.headers, name, value);
+    pub fn add_header(&mut self, name: &str, value: &str) -> HeaderValuePosition {
+        write_header(&mut self.headers, name, value)
+    }
+
+    pub fn get_value(&self, value_position: &HeaderValuePosition) -> &str {
+        unsafe {
+            std::str::from_utf8_unchecked(&self.headers[value_position.start..value_position.end])
+        }
     }
 
     pub fn iter(&self) -> MyHttpClientHeadersBuilderIterator {
@@ -107,9 +118,12 @@ mod tests {
     }
 }
 
-pub fn write_header(dest: &mut Vec<u8>, name: &str, value: &str) {
+pub fn write_header(dest: &mut Vec<u8>, name: &str, value: &str) -> HeaderValuePosition {
     dest.extend_from_slice(name.as_bytes());
     dest.extend_from_slice(": ".as_bytes());
+    let start = dest.len();
     dest.extend_from_slice(value.as_bytes());
+    let end = dest.len();
     dest.extend_from_slice(crate::CL_CR);
+    HeaderValuePosition { start, end }
 }
