@@ -68,6 +68,10 @@ impl<
         result
     }
 
+    pub fn set_connect_timeout(&mut self, connect_timeout: std::time::Duration) {
+        self.connect_timeout = connect_timeout;
+    }
+
     async fn connect(&self) -> Result<(), MyHttpClientError> {
         let connect_feature = self.connector.connect();
 
