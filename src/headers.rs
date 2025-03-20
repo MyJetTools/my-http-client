@@ -31,6 +31,10 @@ impl MyHttpClientHeadersBuilder {
     pub fn iter(&self) -> MyHttpClientHeadersBuilderIterator {
         MyHttpClientHeadersBuilderIterator::new(&self.headers)
     }
+
+    pub fn as_str(&self) -> &str {
+        unsafe { std::str::from_utf8_unchecked(&self.headers) }
+    }
 }
 
 impl MyHttpClientHeaders for MyHttpClientHeadersBuilder {

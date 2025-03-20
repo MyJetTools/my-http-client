@@ -125,24 +125,6 @@ impl TcpBuffer {
         Some(result)
     }
 
-    /*
-       pub fn print_debug_info(&self) {
-           println!(
-               "Read pos: {}, Consumed pos: {}. Remains: {}",
-               self.read_pos,
-               self.consumed_pos,
-               self.read_pos - self.consumed_pos
-           );
-
-           let buf = &self.buffer[self.consumed_pos..self.read_pos];
-
-           if buf.len() > 15 {
-               println!("Buffer: [{:?}]", std::str::from_utf8(&buf[..15]));
-           } else {
-               println!("Buffer: [{:?}]", std::str::from_utf8(buf));
-           }
-       }
-    */
     pub fn get_buf(&self) -> &[u8] {
         &self.buffer[self.consumed_pos..self.read_pos]
     }
