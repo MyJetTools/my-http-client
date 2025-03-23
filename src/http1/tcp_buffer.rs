@@ -30,7 +30,7 @@ impl TcpBuffer {
 
         let mut remains_to_move = self.read_pos - pos;
 
-        println!("Compacting data {}", remains_to_move);
+        //println!("Compacting data {}", remains_to_move);
 
         let size = remains_to_move;
 
