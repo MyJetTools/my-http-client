@@ -14,7 +14,7 @@ use super::*;
 use crate::hyper::*;
 
 pub struct MyHttpHyperClient<
-    TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + Sync + 'static,
+    TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
     TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
 > {
     connector: TConnector,
