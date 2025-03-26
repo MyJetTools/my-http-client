@@ -33,14 +33,14 @@ pub struct MyHttpHyperClientInner {
     #[cfg(feature = "metrics")]
     pub name: String,
     #[cfg(feature = "metrics")]
-    pub metrics: std::sync::Arc<dyn super::MyHttp2ClientMetrics + Send + Sync + 'static>,
+    pub metrics: std::sync::Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>,
 }
 
 impl MyHttpHyperClientInner {
     pub fn new(
         #[cfg(feature = "metrics")] name: String,
         #[cfg(feature = "metrics")] metrics: std::sync::Arc<
-            dyn super::MyHttp2ClientMetrics + Send + Sync + 'static,
+            dyn MyHttpHyperClientMetrics + Send + Sync + 'static,
         >,
     ) -> Self {
         #[cfg(feature = "metrics")]

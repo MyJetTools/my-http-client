@@ -32,7 +32,7 @@ impl<
     pub fn new(
         connector: TConnector,
         #[cfg(feature = "metrics")] metrics: Arc<
-            dyn super::MyHttp2ClientMetrics + Send + Sync + 'static,
+            dyn MyHttpHyperClientMetrics + Send + Sync + 'static,
         >,
     ) -> Self {
         Self {
