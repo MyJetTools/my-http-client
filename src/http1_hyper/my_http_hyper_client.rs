@@ -13,7 +13,7 @@ use crate::{MyHttpClientConnector, MyHttpClientError};
 use super::*;
 use crate::hyper::*;
 
-pub struct HttpHyperClient<
+pub struct MyHttpHyperClient<
     TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + Sync + 'static,
     TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
 > {
@@ -27,7 +27,7 @@ pub struct HttpHyperClient<
 impl<
         TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + Sync + 'static,
         TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
-    > HttpHyperClient<TStream, TConnector>
+    > MyHttpHyperClient<TStream, TConnector>
 {
     pub fn new(
         connector: TConnector,
