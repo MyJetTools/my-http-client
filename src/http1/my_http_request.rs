@@ -85,7 +85,7 @@ fn create_headers(method: Method, path_and_query: &str, version: Version) -> Str
     headers
 }
 
-impl Into<hyper::Request<Full<Bytes>>> for MyHttpRequest {
+impl Into<hyper::Request<Full<Bytes>>> for &'_ MyHttpRequest {
     fn into(self) -> hyper::Request<Full<Bytes>> {
         todo!("Implement")
     }
