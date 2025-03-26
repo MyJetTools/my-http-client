@@ -10,7 +10,7 @@ use crate::MyHttpClientError;
 use super::MyHttpHyperClientInner;
 
 pub async fn wrap_http1_endpoint<
-    TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + Sync + 'static,
+    TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
 >(
     stream: TStream,
     remote_host: &str,
