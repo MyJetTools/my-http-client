@@ -2,13 +2,13 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, Full};
-use hyper::client::conn::http2::SendRequest;
+use hyper::client::conn::http1::SendRequest;
 use rust_extensions::date_time::DateTimeAsMicroseconds;
 use tokio::sync::Mutex;
 
 use crate::hyper::*;
 
-pub enum MyHttp2ConnectionState {
+pub enum MyHttpHyperConnectionState {
     Disconnected,
 
     Connected {
@@ -19,7 +19,7 @@ pub enum MyHttp2ConnectionState {
     Disposed,
 }
 
-impl MyHttp2ConnectionState {
+impl MyHttpHyperConnectionState {
     pub fn is_connected(&self) -> bool {
         match self {
             Self::Connected { .. } => true,
@@ -28,15 +28,15 @@ impl MyHttp2ConnectionState {
     }
 }
 
-pub struct MyHttp2ClientInner {
-    pub state: Mutex<MyHttp2ConnectionState>,
+pub struct MyHttpHyperClientInner {
+    pub state: Mutex<MyHttpHyperConnectionState>,
     #[cfg(feature = "metrics")]
     pub name: String,
     #[cfg(feature = "metrics")]
     pub metrics: std::sync::Arc<dyn super::MyHttp2ClientMetrics + Send + Sync + 'static>,
 }
 
-impl MyHttp2ClientInner {
+impl MyHttpHyperClientInner {
     pub fn new(
         #[cfg(feature = "metrics")] name: String,
         #[cfg(feature = "metrics")] metrics: std::sync::Arc<
@@ -46,7 +46,7 @@ impl MyHttp2ClientInner {
         #[cfg(feature = "metrics")]
         metrics.instance_created(name.as_str());
         Self {
-            state: Mutex::new(MyHttp2ConnectionState::Disconnected),
+            state: Mutex::new(MyHttpHyperConnectionState::Disconnected),
             #[cfg(feature = "metrics")]
             name,
             #[cfg(feature = "metrics")]
@@ -62,10 +62,10 @@ impl MyHttp2ClientInner {
         let (send_request_feature, connected, current_connection_id) = {
             let mut state = self.state.lock().await;
             match &mut *state {
-                MyHttp2ConnectionState::Disconnected => {
+                MyHttpHyperConnectionState::Disconnected => {
                     return Err(SendHyperPayloadError::Disconnected);
                 }
-                MyHttp2ConnectionState::Connected {
+                MyHttpHyperConnectionState::Connected {
                     current_connection_id,
                     connected,
                     send_request,
@@ -74,7 +74,7 @@ impl MyHttp2ClientInner {
                     *connected,
                     *current_connection_id,
                 ),
-                MyHttp2ConnectionState::Disposed => {
+                MyHttpHyperConnectionState::Disposed => {
                     return Err(SendHyperPayloadError::Disposed);
                 }
             }
@@ -102,7 +102,7 @@ impl MyHttp2ClientInner {
         let mut state = self.state.lock().await;
 
         match &*state {
-            MyHttp2ConnectionState::Connected {
+            MyHttpHyperConnectionState::Connected {
                 current_connection_id,
                 ..
             } => {
@@ -113,43 +113,36 @@ impl MyHttp2ClientInner {
                 #[cfg(feature = "metrics")]
                 self.metrics.disconnected(self.name.as_str());
             }
-            MyHttp2ConnectionState::Disconnected => {
+            MyHttpHyperConnectionState::Disconnected => {
                 return;
             }
 
-            MyHttp2ConnectionState::Disposed => {
+            MyHttpHyperConnectionState::Disposed => {
                 return;
             }
         }
 
-        *state = MyHttp2ConnectionState::Disconnected;
+        *state = MyHttpHyperConnectionState::Disconnected;
     }
 
     pub async fn dispose(&self) {
         let mut state = self.state.lock().await;
 
         match &*state {
-            MyHttp2ConnectionState::Connected { .. } => {
+            MyHttpHyperConnectionState::Connected { .. } => {
                 #[cfg(feature = "metrics")]
                 self.metrics.disconnected(self.name.as_str());
             }
-            MyHttp2ConnectionState::Disconnected => {}
+            MyHttpHyperConnectionState::Disconnected => {}
 
-            MyHttp2ConnectionState::Disposed => {}
+            MyHttpHyperConnectionState::Disposed => {}
         }
 
-        *state = MyHttp2ConnectionState::Disposed;
+        *state = MyHttpHyperConnectionState::Disposed;
     }
 
     pub async fn force_disconnect(&self) {
         let mut state = self.state.lock().await;
-        *state = MyHttp2ConnectionState::Disconnected;
-    }
-}
-
-#[cfg(feature = "metrics")]
-impl Drop for MyHttp2ClientInner {
-    fn drop(&mut self) {
-        self.metrics.instance_disposed(&self.name);
+        *state = MyHttpHyperConnectionState::Disconnected;
     }
 }

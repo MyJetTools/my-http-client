@@ -10,6 +10,9 @@ pub use my_http_client_connector::*;
 mod my_http_client_disconnect;
 pub use my_http_client_disconnect::*;
 
+pub mod http1_hyper;
+pub mod hyper;
+
 pub type HyperResponse = http::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>;
 mod headers;
 pub use headers::*;

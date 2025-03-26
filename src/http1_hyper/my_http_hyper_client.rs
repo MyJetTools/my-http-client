@@ -10,16 +10,16 @@ use rust_extensions::date_time::DateTimeAsMicroseconds;
 
 use crate::{MyHttpClientConnector, MyHttpClientError};
 
-use super::{MyHttp2ClientInner, MyHttp2ConnectionState};
+use super::*;
 use crate::hyper::*;
 
-pub struct MyHttp2Client<
+pub struct HttpHyperClient<
     TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + Sync + 'static,
     TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
 > {
     connector: TConnector,
     stream: PhantomData<TStream>,
-    inner: Arc<MyHttp2ClientInner>,
+    inner: Arc<MyHttpHyperClientInner>,
     connect_timeout: Duration,
     connection_id: AtomicU64,
 }
@@ -27,7 +27,7 @@ pub struct MyHttp2Client<
 impl<
         TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + Sync + 'static,
         TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
-    > MyHttp2Client<TStream, TConnector>
+    > HttpHyperClient<TStream, TConnector>
 {
     pub fn new(
         connector: TConnector,
@@ -36,7 +36,7 @@ impl<
         >,
     ) -> Self {
         Self {
-            inner: Arc::new(MyHttp2ClientInner::new(
+            inner: Arc::new(MyHttpHyperClientInner::new(
                 #[cfg(feature = "metrics")]
                 connector.get_remote_endpoint().get_host_port().to_string(),
                 #[cfg(feature = "metrics")]
@@ -135,7 +135,7 @@ impl<
 
         let stream = connect_result.unwrap()?;
 
-        let send_request = super::wrap_http2_endpoint::wrap_http2_endpoint(
+        let send_request = super::wrap_http1_endpoint::wrap_http1_endpoint(
             stream,
             remote_host_port.as_str(),
             self.inner.clone(),
@@ -143,7 +143,7 @@ impl<
         )
         .await?;
 
-        *state = MyHttp2ConnectionState::Connected {
+        *state = MyHttpHyperConnectionState::Connected {
             connected: DateTimeAsMicroseconds::now(),
             send_request,
             current_connection_id: connection_id,
@@ -153,19 +153,5 @@ impl<
         self.inner.metrics.connected(&self.inner.name);
 
         Ok(())
-    }
-}
-
-impl<
-        TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + Sync + 'static,
-        TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
-    > Drop for MyHttp2Client<TStream, TConnector>
-{
-    fn drop(&mut self) {
-        let inner = self.inner.clone();
-
-        tokio::spawn(async move {
-            inner.dispose().await;
-        });
     }
 }

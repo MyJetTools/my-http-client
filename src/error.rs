@@ -8,6 +8,7 @@ pub enum MyHttpClientError {
     Disposed,
     RequestTimeout(Duration),
     CanNotExecuteRequest(String),
+    InvalidHttpHandshake(String),
 }
 
 impl MyHttpClientError {
