@@ -1,34 +1,30 @@
 use std::str::FromStr;
 
 use bytes::Bytes;
-use http::{request::Builder, Version};
+use http::{request::Builder, Uri, Version};
 use http_body_util::Full;
-use rust_extensions::slice_of_u8_utils::SliceOfU8Ext;
+use rust_extensions::{slice_of_u8_utils::SliceOfU8Ext, str_utils::StrUtils};
 
 use super::*;
 
 impl MyHttpRequest {
     pub fn to_hyper_h1_request(&self) -> hyper::Request<Full<Bytes>> {
-        build_headers(&self.headers, false)
+        build_h1_headers(&self.headers)
             .body(Full::new(self.body.clone()))
             .unwrap()
     }
 
-    pub fn to_hyper_h2_request(&self) -> hyper::Request<Full<Bytes>> {
-        build_headers(&self.headers, true)
+    pub fn to_hyper_h2_request(&self, is_https: bool) -> hyper::Request<Full<Bytes>> {
+        build_h2_headers(&self.headers, is_https)
             .body(Full::new(self.body.clone()))
             .unwrap()
     }
 }
 
-fn build_headers(headers: &[u8], h2: bool) -> Builder {
+fn build_h1_headers(headers: &[u8]) -> Builder {
     let mut index = 0;
 
-    let mut builder = if h2 {
-        Builder::new().version(Version::HTTP_2)
-    } else {
-        Builder::new()
-    };
+    let mut builder = Builder::new();
 
     //Skipping first HTTP Line
     let line_end_index = find_next_cl_cr(headers, index);
@@ -54,6 +50,65 @@ fn build_headers(headers: &[u8], h2: bool) -> Builder {
         index = line_end_index + crate::CL_CR.len();
     }
 
+    builder
+}
+
+fn build_h2_headers(headers: &[u8], is_https: bool) -> Builder {
+    let mut index = 0;
+
+    let mut builder = Builder::new().version(Version::HTTP_2);
+
+    //Skipping first HTTP Line
+    let line_end_index = find_next_cl_cr(headers, index);
+
+    if line_end_index.is_none() {
+        panic!("Can not convert http headers to Hyper builder");
+    }
+
+    let line_end_index = line_end_index.unwrap();
+    let line = &headers[index..line_end_index];
+
+    let (http_method, uri) = extract_http_method_and_uri(line);
+
+    index += line_end_index + crate::CL_CR.len();
+
+    let mut host = None;
+
+    while let Some(line_end_index) = find_next_cl_cr(headers, index) {
+        let line = &headers[index..line_end_index];
+        let (name, value) = extract_name_and_value(line);
+
+        if name.eq_case_insensitive("host") {
+            host = Some(value.trim());
+        } else {
+            builder = builder.header(name.trim(), value.trim());
+        }
+
+        index = line_end_index + crate::CL_CR.len();
+    }
+
+    let uri = if let Some(host) = host {
+        println!("{:?}", host);
+        if is_https {
+            Uri::builder()
+                .scheme("https")
+                .authority(host)
+                .path_and_query(uri)
+                .build()
+                .unwrap()
+        } else {
+            Uri::builder()
+                .scheme("http")
+                .authority(host)
+                .path_and_query(uri)
+                .build()
+                .unwrap()
+        }
+    } else {
+        Uri::builder().path_and_query(uri).build().unwrap()
+    };
+
+    builder = builder.method(http_method).uri(uri);
     builder
 }
 
@@ -105,9 +160,8 @@ fn find_next_cl_cr(slice: &[u8], from_index: usize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use bytes::Bytes;
+
     use http::{Method, Version};
-    use http_body_util::Full;
 
     use crate::{http1::MyHttpRequest, MyHttpClientHeadersBuilder};
 
@@ -134,6 +188,7 @@ mod tests {
         let mut headers = MyHttpClientHeadersBuilder::new();
         headers.add_header("content-type", "application/json");
         headers.add_header("accept-language", "en-US");
+        headers.add_header("host", "tokio.rs");
         let request_builder = MyHttpRequest::new(
             Method::POST,
             "/test?aaa=12",
@@ -142,7 +197,7 @@ mod tests {
             vec![0u8, 1u8, 2u8],
         );
 
-        let body = request_builder.to_hyper_h2_request();
+        let body = request_builder.to_hyper_h2_request(true);
 
         println!("{:?}", body);
     }
