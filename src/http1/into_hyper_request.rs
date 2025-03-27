@@ -8,13 +8,13 @@ use rust_extensions::slice_of_u8_utils::SliceOfU8Ext;
 use super::*;
 
 impl MyHttpRequest {
-    pub fn to_hyper_h1_request(self) -> hyper::Request<Full<Bytes>> {
+    pub fn to_hyper_h1_request(&self) -> hyper::Request<Full<Bytes>> {
         build_headers(&self.headers, false)
             .body(Full::new(self.body.clone()))
             .unwrap()
     }
 
-    pub fn to_hyper_h2_request(self) -> hyper::Request<Full<Bytes>> {
+    pub fn to_hyper_h2_request(&self) -> hyper::Request<Full<Bytes>> {
         build_headers(&self.headers, true)
             .body(Full::new(self.body.clone()))
             .unwrap()
