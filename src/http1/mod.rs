@@ -38,6 +38,10 @@ pub use my_http_client_metrics::*;
 mod read_with_timeout;
 pub use read_with_timeout::*;
 
+pub mod into_hyper_request;
+
+const CONTENT_LENGTH_HEADER_NAME: &'static str = "content-length";
+
 #[derive(Debug)]
 pub enum HttpParseError {
     GetMoreData,

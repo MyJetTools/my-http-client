@@ -26,7 +26,7 @@ impl MyHttpRequest {
         if result.body.len() > 0 {
             crate::headers::write_header(
                 &mut result.headers,
-                "Content-Length",
+                super::CONTENT_LENGTH_HEADER_NAME,
                 result.body.len().to_string().as_str(),
             );
         }
