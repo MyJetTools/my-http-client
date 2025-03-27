@@ -18,3 +18,4 @@ mod headers;
 pub use headers::*;
 
 const CL_CR: &[u8] = b"\r\n";
+pub extern crate http;
