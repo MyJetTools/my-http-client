@@ -1,24 +1,34 @@
 use std::str::FromStr;
 
 use bytes::Bytes;
-use http::request::Builder;
+use http::{request::Builder, Version};
 use http_body_util::Full;
 use rust_extensions::slice_of_u8_utils::SliceOfU8Ext;
 
 use super::*;
 
-impl Into<hyper::Request<Full<Bytes>>> for &'_ MyHttpRequest {
-    fn into(self) -> hyper::Request<Full<Bytes>> {
-        build_headers(&self.headers)
+impl MyHttpRequest {
+    pub fn to_hyper_h1_request(self) -> hyper::Request<Full<Bytes>> {
+        build_headers(&self.headers, false)
+            .body(Full::new(self.body.clone()))
+            .unwrap()
+    }
+
+    pub fn to_hyper_h2_request(self) -> hyper::Request<Full<Bytes>> {
+        build_headers(&self.headers, true)
             .body(Full::new(self.body.clone()))
             .unwrap()
     }
 }
 
-fn build_headers(headers: &[u8]) -> Builder {
+fn build_headers(headers: &[u8], h2: bool) -> Builder {
     let mut index = 0;
 
-    let mut builder = Builder::new();
+    let mut builder = if h2 {
+        Builder::new().version(Version::HTTP_2)
+    } else {
+        Builder::new()
+    };
 
     //Skipping first HTTP Line
     let line_end_index = find_next_cl_cr(headers, index);
@@ -114,7 +124,25 @@ mod tests {
             vec![0u8, 1u8, 2u8],
         );
 
-        let body: hyper::Request<Full<Bytes>> = (&request_builder).into();
+        let body = request_builder.to_hyper_h1_request();
+
+        println!("{:?}", body);
+    }
+
+    #[test]
+    fn test_converting_to_h2() {
+        let mut headers = MyHttpClientHeadersBuilder::new();
+        headers.add_header("content-type", "application/json");
+        headers.add_header("accept-language", "en-US");
+        let request_builder = MyHttpRequest::new(
+            Method::POST,
+            "/test?aaa=12",
+            Version::HTTP_11,
+            &headers,
+            vec![0u8, 1u8, 2u8],
+        );
+
+        let body = request_builder.to_hyper_h2_request();
 
         println!("{:?}", body);
     }
