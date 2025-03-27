@@ -30,26 +30,24 @@ impl MyHttp2ConnectionState {
 
 pub struct MyHttp2ClientInner {
     pub state: Mutex<MyHttp2ConnectionState>,
-    #[cfg(feature = "metrics")]
     pub name: String,
-    #[cfg(feature = "metrics")]
-    pub metrics: std::sync::Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>,
+    pub metrics: Option<std::sync::Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>>,
 }
 
 impl MyHttp2ClientInner {
     pub fn new(
-        #[cfg(feature = "metrics")] name: String,
-        #[cfg(feature = "metrics")] metrics: std::sync::Arc<
-            dyn MyHttpHyperClientMetrics + Send + Sync + 'static,
-        >,
+        name: String,
+        metrics: Option<std::sync::Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>>,
     ) -> Self {
-        #[cfg(feature = "metrics")]
-        metrics.instance_created(name.as_str());
+        if let Some(metrics) = metrics.as_ref() {
+            metrics.instance_created(name.as_str());
+        }
+
         Self {
             state: Mutex::new(MyHttp2ConnectionState::Disconnected),
-            #[cfg(feature = "metrics")]
+
             name,
-            #[cfg(feature = "metrics")]
+
             metrics,
         }
     }
@@ -110,8 +108,9 @@ impl MyHttp2ClientInner {
                     return;
                 }
 
-                #[cfg(feature = "metrics")]
-                self.metrics.disconnected(self.name.as_str());
+                if let Some(metrics) = self.metrics.as_ref() {
+                    metrics.disconnected(self.name.as_str());
+                }
             }
             MyHttp2ConnectionState::Disconnected => {
                 return;
@@ -130,8 +129,9 @@ impl MyHttp2ClientInner {
 
         match &*state {
             MyHttp2ConnectionState::Connected { .. } => {
-                #[cfg(feature = "metrics")]
-                self.metrics.disconnected(self.name.as_str());
+                if let Some(metrics) = self.metrics.as_ref() {
+                    metrics.disconnected(self.name.as_str());
+                }
             }
             MyHttp2ConnectionState::Disconnected => {}
 
@@ -147,9 +147,10 @@ impl MyHttp2ClientInner {
     }
 }
 
-#[cfg(feature = "metrics")]
 impl Drop for MyHttp2ClientInner {
     fn drop(&mut self) {
-        self.metrics.instance_disposed(&self.name);
+        if let Some(metrics) = self.metrics.as_ref() {
+            metrics.instance_disposed(&self.name);
+        }
     }
 }

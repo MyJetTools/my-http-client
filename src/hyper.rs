@@ -15,7 +15,6 @@ pub enum SendHyperPayloadError {
 
 pub const HYPER_INIT_TIMEOUT: Duration = Duration::from_secs(5);
 
-#[cfg(feature = "metrics")]
 pub trait MyHttpHyperClientMetrics {
     fn instance_created(&self, name: &str);
     fn instance_disposed(&self, name: &str);

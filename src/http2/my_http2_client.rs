@@ -29,18 +29,28 @@ impl<
         TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
     > MyHttp2Client<TStream, TConnector>
 {
-    pub fn new(
+    pub fn new(connector: TConnector) -> Self {
+        Self {
+            inner: Arc::new(MyHttp2ClientInner::new(
+                connector.get_remote_endpoint().get_host_port().to_string(),
+                None,
+            )),
+            connector,
+
+            stream: PhantomData::default(),
+            connect_timeout: Duration::from_secs(5),
+            connection_id: AtomicU64::new(0),
+        }
+    }
+
+    pub fn new_with_metrics(
         connector: TConnector,
-        #[cfg(feature = "metrics")] metrics: Arc<
-            dyn MyHttpHyperClientMetrics + Send + Sync + 'static,
-        >,
+        metrics: Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>,
     ) -> Self {
         Self {
             inner: Arc::new(MyHttp2ClientInner::new(
-                #[cfg(feature = "metrics")]
                 connector.get_remote_endpoint().get_host_port().to_string(),
-                #[cfg(feature = "metrics")]
-                metrics,
+                Some(metrics),
             )),
             connector,
 
@@ -149,8 +159,9 @@ impl<
             current_connection_id: connection_id,
         };
 
-        #[cfg(feature = "metrics")]
-        self.inner.metrics.connected(&self.inner.name);
+        if let Some(metrics) = self.inner.metrics.as_ref() {
+            metrics.connected(&self.inner.name);
+        }
 
         Ok(())
     }

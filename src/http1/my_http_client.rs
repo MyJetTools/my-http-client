@@ -31,7 +31,6 @@ impl<
     pub fn new(connector: TConnector) -> Self {
         let inner = Arc::new(MyHttpClientInner::new(
             connector.get_remote_endpoint().get_host_port().to_string(),
-            #[cfg(feature = "metrics")]
             None,
         ));
 
@@ -46,14 +45,12 @@ impl<
         result
     }
 
-    #[cfg(feature = "metrics")]
     pub fn new_with_metrics(
         connector: TConnector,
         metrics: Arc<dyn super::MyHttpClientMetrics + Send + Sync + 'static>,
     ) -> Self {
         let inner = Arc::new(MyHttpClientInner::new(
             connector.get_remote_endpoint().get_host_port().to_string(),
-            #[cfg(feature = "metrics")]
             Some(metrics),
         ));
 
@@ -102,7 +99,6 @@ impl<
         if let Some(receiver) = receiver {
             let inner_cloned = self.inner.clone();
             tokio::spawn(async move {
-                #[cfg(feature = "metrics")]
                 if let Some(metrics) = &inner_cloned.metrics {
                     metrics.write_thread_start(&inner_cloned.name);
                 }
@@ -113,7 +109,6 @@ impl<
                 ))
                 .await;
 
-                #[cfg(feature = "metrics")]
                 if let Some(metrics) = &inner_cloned.metrics {
                     metrics.write_thread_stop(&inner_cloned.name);
                 }
@@ -136,7 +131,7 @@ impl<
         let inner_cloned = self.inner.clone();
         tokio::spawn(async move {
             let inner = inner_cloned.clone();
-            #[cfg(feature = "metrics")]
+
             if let Some(metrics) = &inner_cloned.metrics {
                 metrics.read_thread_start(&inner.name);
             }
@@ -192,7 +187,6 @@ impl<
                 }
             }
 
-            #[cfg(feature = "metrics")]
             if let Some(metrics) = &inner.metrics {
                 metrics.read_thread_stop(&inner.name);
             }

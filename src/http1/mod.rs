@@ -30,9 +30,8 @@ mod body_reader;
 pub use body_reader::*;
 mod headers_reader;
 pub use headers_reader::*;
-#[cfg(feature = "metrics")]
+
 mod my_http_client_metrics;
-#[cfg(feature = "metrics")]
 pub use my_http_client_metrics::*;
 
 mod read_with_timeout;

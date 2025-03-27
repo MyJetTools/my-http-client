@@ -30,26 +30,24 @@ impl MyHttpHyperConnectionState {
 
 pub struct MyHttpHyperClientInner {
     pub state: Mutex<MyHttpHyperConnectionState>,
-    #[cfg(feature = "metrics")]
     pub name: String,
-    #[cfg(feature = "metrics")]
-    pub metrics: std::sync::Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>,
+    pub metrics: Option<std::sync::Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>>,
 }
 
 impl MyHttpHyperClientInner {
     pub fn new(
-        #[cfg(feature = "metrics")] name: String,
-        #[cfg(feature = "metrics")] metrics: std::sync::Arc<
-            dyn MyHttpHyperClientMetrics + Send + Sync + 'static,
-        >,
+        name: String,
+        metrics: Option<std::sync::Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>>,
     ) -> Self {
-        #[cfg(feature = "metrics")]
-        metrics.instance_created(name.as_str());
+        if let Some(metrics) = metrics.as_ref() {
+            metrics.instance_created(name.as_str());
+        }
+
         Self {
             state: Mutex::new(MyHttpHyperConnectionState::Disconnected),
-            #[cfg(feature = "metrics")]
+
             name,
-            #[cfg(feature = "metrics")]
+
             metrics,
         }
     }
@@ -110,8 +108,9 @@ impl MyHttpHyperClientInner {
                     return;
                 }
 
-                #[cfg(feature = "metrics")]
-                self.metrics.disconnected(self.name.as_str());
+                if let Some(metrics) = self.metrics.as_ref() {
+                    metrics.disconnected(self.name.as_str());
+                }
             }
             MyHttpHyperConnectionState::Disconnected => {
                 return;
@@ -130,8 +129,9 @@ impl MyHttpHyperClientInner {
 
         match &*state {
             MyHttpHyperConnectionState::Connected { .. } => {
-                #[cfg(feature = "metrics")]
-                self.metrics.disconnected(self.name.as_str());
+                if let Some(metrics) = self.metrics.as_ref() {
+                    metrics.disconnected(self.name.as_str());
+                }
             }
             MyHttpHyperConnectionState::Disconnected => {}
 
