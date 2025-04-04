@@ -146,3 +146,9 @@ impl MyHttpHyperClientInner {
         *state = MyHttpHyperConnectionState::Disconnected;
     }
 }
+
+impl Drop for MyHttpHyperClientInner {
+    fn drop(&mut self) {
+        println!("Drop MyHttpHyperClientInner")
+    }
+}

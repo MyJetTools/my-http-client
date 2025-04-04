@@ -5,10 +5,10 @@ use std::{
 };
 
 use bytes::Bytes;
-use http_body_util::{combinators::BoxBody, Full};
+use http_body_util::Full;
 use rust_extensions::date_time::DateTimeAsMicroseconds;
 
-use crate::{MyHttpClientConnector, MyHttpClientError};
+use crate::{http1::MyHttpResponse, MyHttpClientConnector, MyHttpClientError};
 
 use super::*;
 use crate::hyper::*;
@@ -68,12 +68,19 @@ impl<
         &self,
         req: hyper::Request<Full<Bytes>>,
         request_timeout: Duration,
-    ) -> Result<hyper::Response<BoxBody<Bytes, String>>, MyHttpClientError> {
+    ) -> Result<MyHttpResponse<TStream>, MyHttpClientError> {
         let mut retry_no = 0;
         loop {
             let err = match self.inner.send_payload(&req, request_timeout).await {
                 Ok(response) => {
-                    return Ok(response);
+                    if response.status() == 101 {
+
+                        //   let write_part = self.inner.upgrade_to_websocket(connection_id).await?;
+
+                        // let stream = TConnector::reunite(read, write)
+                    }
+
+                    return Ok(MyHttpResponse::Response(response));
                 }
                 Err(err) => err,
             };
