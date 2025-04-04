@@ -30,18 +30,6 @@ impl<
     > MyHttpHyperClient<TStream, TConnector>
 {
     pub fn new(connector: TConnector) -> Self {
-        let name = connector.get_remote_endpoint().get_host_port().to_string();
-
-        tokio::spawn(async move {
-            let mut access = INSTANCES.lock().await;
-            if let Some(itm) = access.get_mut(&name) {
-                *itm += 1;
-            } else {
-                access.insert(name.to_string(), 1);
-            }
-            println!("Creating MyHttpHyperClient with name {}", name,);
-        });
-
         Self {
             inner: Arc::new(MyHttpHyperClientInner::new(
                 connector.get_remote_endpoint().get_host_port().to_string(),
@@ -59,18 +47,6 @@ impl<
         connector: TConnector,
         metrics: Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>,
     ) -> Self {
-        let name = connector.get_remote_endpoint().get_host_port().to_string();
-
-        tokio::spawn(async move {
-            let mut access = INSTANCES.lock().await;
-            if let Some(itm) = access.get_mut(&name) {
-                *itm += 1;
-            } else {
-                access.insert(name.to_string(), 1);
-            }
-            println!("Creating MyHttpHyperClient with name {}", name,);
-        });
-
         Self {
             inner: Arc::new(MyHttpHyperClientInner::new(
                 connector.get_remote_endpoint().get_host_port().to_string(),
@@ -195,25 +171,9 @@ impl<
     > Drop for MyHttpHyperClient<TStream, TConnector>
 {
     fn drop(&mut self) {
-        let name = self.inner.name.to_string();
         let inner = self.inner.clone();
         tokio::spawn(async move {
             inner.dispose().await;
-            let mut access = INSTANCES.lock().await;
-            let mut value = *access.get(&name).unwrap();
-
-            value -= 1;
-
-            if value == 0 {
-                access.remove(&name);
-            } else {
-                access.insert(name.to_string(), value);
-            }
-
-            println!(
-                "Drop MyHttpHyperClient with name: {}. Snapshot: {:?}",
-                name, *access
-            );
         });
     }
 }

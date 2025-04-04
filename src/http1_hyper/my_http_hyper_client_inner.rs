@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::time::Duration;
 
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, Full};
@@ -7,16 +7,6 @@ use rust_extensions::date_time::DateTimeAsMicroseconds;
 use tokio::sync::Mutex;
 
 use crate::hyper::*;
-
-lazy_static::lazy_static! {
-     pub static ref INSTANCES: Arc<Mutex<BTreeMap<String, usize>>> = {
-        Arc::new(Mutex::new(BTreeMap::new()))
-    };
-
-    pub static ref INNERS: Arc<std::sync:: Mutex<BTreeMap<String, usize>>> = {
-        Arc::new(std::sync:: Mutex::new(BTreeMap::new()))
-    };
-}
 
 pub enum MyHttpHyperConnectionState {
     Disconnected,
@@ -49,18 +39,6 @@ impl MyHttpHyperClientInner {
         name: String,
         metrics: Option<std::sync::Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>>,
     ) -> Self {
-        let mut access = INNERS.lock().unwrap();
-        if let Some(itm) = access.get_mut(&name) {
-            *itm += 1;
-        } else {
-            access.insert(name.to_string(), 1);
-        }
-        println!("Creating MyHttpHyperInnerClient with name {}", name,);
-
-        if let Some(metrics) = metrics.as_ref() {
-            metrics.instance_created(name.as_str());
-        }
-
         Self {
             state: Mutex::new(MyHttpHyperConnectionState::Disconnected),
 
@@ -162,25 +140,5 @@ impl MyHttpHyperClientInner {
     pub async fn force_disconnect(&self) {
         let mut state = self.state.lock().await;
         *state = MyHttpHyperConnectionState::Disconnected;
-    }
-}
-
-impl Drop for MyHttpHyperClientInner {
-    fn drop(&mut self) {
-        let mut access = INNERS.lock().unwrap();
-        let mut value = *access.get(&self.name).unwrap();
-
-        value -= 1;
-
-        if value == 0 {
-            access.remove(&self.name);
-        } else {
-            access.insert(self.name.to_string(), value);
-        }
-
-        println!(
-            "Drop MyHttpHyperInnerClient with name: {}. Snapshot: {:?}",
-            self.name, *access
-        );
     }
 }
