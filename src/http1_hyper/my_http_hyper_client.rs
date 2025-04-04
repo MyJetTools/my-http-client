@@ -59,6 +59,18 @@ impl<
         connector: TConnector,
         metrics: Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>,
     ) -> Self {
+        let name = connector.get_remote_endpoint().get_host_port().to_string();
+
+        tokio::spawn(async move {
+            let mut access = INNERS.lock().await;
+            if let Some(itm) = access.get_mut(&name) {
+                *itm += 1;
+            } else {
+                access.insert(name.to_string(), 1);
+            }
+            println!("Creating MyHttpHyperClient with name {}", name,);
+        });
+
         Self {
             inner: Arc::new(MyHttpHyperClientInner::new(
                 connector.get_remote_endpoint().get_host_port().to_string(),
