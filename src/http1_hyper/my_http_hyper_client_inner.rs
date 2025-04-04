@@ -1,7 +1,4 @@
-use std::{
-    sync::{atomic::AtomicI64, Arc},
-    time::Duration,
-};
+use std::{collections::BTreeMap, time::Duration};
 
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, Full};
@@ -12,8 +9,8 @@ use tokio::sync::Mutex;
 use crate::hyper::*;
 
 lazy_static::lazy_static! {
-     static ref INNERS: Arc<AtomicI64> = {
-        Arc::new(AtomicI64::new(0))
+     static ref INNERS: std::sync::Mutex<BTreeMap<String, usize>> = {
+        std::sync::Mutex::new(BTreeMap::new())
     };
 }
 
@@ -48,12 +45,13 @@ impl MyHttpHyperClientInner {
         name: String,
         metrics: Option<std::sync::Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>>,
     ) -> Self {
-        INNERS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        println!(
-            "Creating MyHttpHyperClientInner with name {}. Amount: {}",
-            name,
-            INNERS.load(std::sync::atomic::Ordering::Relaxed)
-        );
+        let mut access = INNERS.lock().unwrap();
+        if let Some(itm) = access.get_mut(&name) {
+            *itm += 1;
+        } else {
+            access.insert(name.to_string(), 1);
+        }
+        println!("Creating MyHttpHyperClientInner with name {}", name,);
 
         if let Some(metrics) = metrics.as_ref() {
             metrics.instance_created(name.as_str());
@@ -165,11 +163,20 @@ impl MyHttpHyperClientInner {
 
 impl Drop for MyHttpHyperClientInner {
     fn drop(&mut self) {
-        INNERS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        let mut access = INNERS.lock().unwrap();
+        let mut value = *access.get(&self.name).unwrap();
+
+        value -= 1;
+
+        if value == 0 {
+            access.remove(&self.name);
+        } else {
+            access.insert(self.name.to_string(), value);
+        }
+
         println!(
-            "Drop MyHttpHyperClientInner with name: {}. Amount: {}",
-            self.name,
-            INNERS.load(std::sync::atomic::Ordering::Relaxed)
+            "Drop MyHttpHyperClientInner with name: {}. Snapshot: {:?}",
+            self.name, *access
         );
     }
 }
