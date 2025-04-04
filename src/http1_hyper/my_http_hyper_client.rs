@@ -47,6 +47,14 @@ impl<
         connector: TConnector,
         metrics: Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>,
     ) -> Self {
+        let name = connector.get_remote_endpoint().get_host_port().to_string();
+        let mut access = INNERS.lock().unwrap();
+        if let Some(itm) = access.get_mut(&name) {
+            *itm += 1;
+        } else {
+            access.insert(name.to_string(), 1);
+        }
+        println!("Creating MyHttpHyperClient with name {}", name,);
         Self {
             inner: Arc::new(MyHttpHyperClientInner::new(
                 connector.get_remote_endpoint().get_host_port().to_string(),
@@ -162,5 +170,29 @@ impl<
         }
 
         Ok(())
+    }
+}
+
+impl<
+        TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
+        TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
+    > Drop for MyHttpHyperClient<TStream, TConnector>
+{
+    fn drop(&mut self) {
+        let mut access = INNERS.lock().unwrap();
+        let mut value = *access.get(&self.inner.name).unwrap();
+
+        value -= 1;
+
+        if value == 0 {
+            access.remove(&self.inner.name);
+        } else {
+            access.insert(self.inner.name.to_string(), value);
+        }
+
+        println!(
+            "Drop MyHttpHyperClient with name: {}. Snapshot: {:?}",
+            self.inner.name, *access
+        );
     }
 }

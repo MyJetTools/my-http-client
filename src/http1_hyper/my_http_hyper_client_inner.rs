@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use crate::hyper::*;
 
 lazy_static::lazy_static! {
-     static ref INNERS: std::sync::Mutex<BTreeMap<String, usize>> = {
+     pub static ref INNERS: std::sync::Mutex<BTreeMap<String, usize>> = {
         std::sync::Mutex::new(BTreeMap::new())
     };
 }
@@ -45,14 +45,6 @@ impl MyHttpHyperClientInner {
         name: String,
         metrics: Option<std::sync::Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>>,
     ) -> Self {
-        let mut access = INNERS.lock().unwrap();
-        if let Some(itm) = access.get_mut(&name) {
-            *itm += 1;
-        } else {
-            access.insert(name.to_string(), 1);
-        }
-        println!("Creating MyHttpHyperClientInner with name {}", name,);
-
         if let Some(metrics) = metrics.as_ref() {
             metrics.instance_created(name.as_str());
         }
@@ -158,25 +150,5 @@ impl MyHttpHyperClientInner {
     pub async fn force_disconnect(&self) {
         let mut state = self.state.lock().await;
         *state = MyHttpHyperConnectionState::Disconnected;
-    }
-}
-
-impl Drop for MyHttpHyperClientInner {
-    fn drop(&mut self) {
-        let mut access = INNERS.lock().unwrap();
-        let mut value = *access.get(&self.name).unwrap();
-
-        value -= 1;
-
-        if value == 0 {
-            access.remove(&self.name);
-        } else {
-            access.insert(self.name.to_string(), value);
-        }
-
-        println!(
-            "Drop MyHttpHyperClientInner with name: {}. Snapshot: {:?}",
-            self.name, *access
-        );
     }
 }
