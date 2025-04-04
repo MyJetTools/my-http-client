@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, Full};
@@ -9,8 +9,8 @@ use tokio::sync::Mutex;
 use crate::hyper::*;
 
 lazy_static::lazy_static! {
-     pub static ref INNERS: std::sync::Mutex<BTreeMap<String, usize>> = {
-        std::sync::Mutex::new(BTreeMap::new())
+     pub static ref INNERS: Arc<Mutex<BTreeMap<String, usize>>> = {
+        Arc::new(Mutex::new(BTreeMap::new()))
     };
 }
 

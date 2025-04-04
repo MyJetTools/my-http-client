@@ -30,6 +30,18 @@ impl<
     > MyHttpHyperClient<TStream, TConnector>
 {
     pub fn new(connector: TConnector) -> Self {
+        let name = connector.get_remote_endpoint().get_host_port().to_string();
+
+        tokio::spawn(async move {
+            let mut access = INNERS.lock().await;
+            if let Some(itm) = access.get_mut(&name) {
+                *itm += 1;
+            } else {
+                access.insert(name.to_string(), 1);
+            }
+            println!("Creating MyHttpHyperClient with name {}", name,);
+        });
+
         Self {
             inner: Arc::new(MyHttpHyperClientInner::new(
                 connector.get_remote_endpoint().get_host_port().to_string(),
@@ -47,14 +59,6 @@ impl<
         connector: TConnector,
         metrics: Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>,
     ) -> Self {
-        let name = connector.get_remote_endpoint().get_host_port().to_string();
-        let mut access = INNERS.lock().unwrap();
-        if let Some(itm) = access.get_mut(&name) {
-            *itm += 1;
-        } else {
-            access.insert(name.to_string(), 1);
-        }
-        println!("Creating MyHttpHyperClient with name {}", name,);
         Self {
             inner: Arc::new(MyHttpHyperClientInner::new(
                 connector.get_remote_endpoint().get_host_port().to_string(),
@@ -179,20 +183,23 @@ impl<
     > Drop for MyHttpHyperClient<TStream, TConnector>
 {
     fn drop(&mut self) {
-        let mut access = INNERS.lock().unwrap();
-        let mut value = *access.get(&self.inner.name).unwrap();
+        let name = self.inner.name.to_string();
+        tokio::spawn(async move {
+            let mut access = INNERS.lock().await;
+            let mut value = *access.get(&name).unwrap();
 
-        value -= 1;
+            value -= 1;
 
-        if value == 0 {
-            access.remove(&self.inner.name);
-        } else {
-            access.insert(self.inner.name.to_string(), value);
-        }
+            if value == 0 {
+                access.remove(&name);
+            } else {
+                access.insert(name.to_string(), value);
+            }
 
-        println!(
-            "Drop MyHttpHyperClient with name: {}. Snapshot: {:?}",
-            self.inner.name, *access
-        );
+            println!(
+                "Drop MyHttpHyperClient with name: {}. Snapshot: {:?}",
+                name, *access
+            );
+        });
     }
 }
