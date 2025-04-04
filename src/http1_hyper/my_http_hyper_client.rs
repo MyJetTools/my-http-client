@@ -33,7 +33,7 @@ impl<
         let name = connector.get_remote_endpoint().get_host_port().to_string();
 
         tokio::spawn(async move {
-            let mut access = INNERS.lock().await;
+            let mut access = INSTANCES.lock().await;
             if let Some(itm) = access.get_mut(&name) {
                 *itm += 1;
             } else {
@@ -62,7 +62,7 @@ impl<
         let name = connector.get_remote_endpoint().get_host_port().to_string();
 
         tokio::spawn(async move {
-            let mut access = INNERS.lock().await;
+            let mut access = INSTANCES.lock().await;
             if let Some(itm) = access.get_mut(&name) {
                 *itm += 1;
             } else {
@@ -196,8 +196,10 @@ impl<
 {
     fn drop(&mut self) {
         let name = self.inner.name.to_string();
+        let inner = self.inner.clone();
         tokio::spawn(async move {
-            let mut access = INNERS.lock().await;
+            inner.dispose().await;
+            let mut access = INSTANCES.lock().await;
             let mut value = *access.get(&name).unwrap();
 
             value -= 1;
