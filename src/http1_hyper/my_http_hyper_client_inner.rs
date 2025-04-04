@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    sync::{atomic::AtomicI64, Arc},
+    time::Duration,
+};
 
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, Full};
@@ -7,6 +10,12 @@ use rust_extensions::date_time::DateTimeAsMicroseconds;
 use tokio::sync::Mutex;
 
 use crate::hyper::*;
+
+lazy_static::lazy_static! {
+     static ref INNERS: Arc<AtomicI64> = {
+        Arc::new(AtomicI64::new(0))
+    };
+}
 
 pub enum MyHttpHyperConnectionState {
     Disconnected,
@@ -39,6 +48,13 @@ impl MyHttpHyperClientInner {
         name: String,
         metrics: Option<std::sync::Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>>,
     ) -> Self {
+        INNERS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        println!(
+            "Creating MyHttpHyperClientInner with name {}. Amount: {}",
+            name,
+            INNERS.load(std::sync::atomic::Ordering::Relaxed)
+        );
+
         if let Some(metrics) = metrics.as_ref() {
             metrics.instance_created(name.as_str());
         }
@@ -149,6 +165,11 @@ impl MyHttpHyperClientInner {
 
 impl Drop for MyHttpHyperClientInner {
     fn drop(&mut self) {
-        println!("Drop MyHttpHyperClientInner")
+        INNERS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        println!(
+            "Drop MyHttpHyperClientInner with name: {}. Amount: {}",
+            self.name,
+            INNERS.load(std::sync::atomic::Ordering::Relaxed)
+        );
     }
 }
