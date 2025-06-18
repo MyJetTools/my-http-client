@@ -7,7 +7,7 @@ edition = "2021"
 default = []
 
 [dependencies]
-tokio = { version = "*", features = ["full"] }
+tokio = { version = "*" }
 bytes = "*"
 http-body-util = "*"
 async-trait = "*"
