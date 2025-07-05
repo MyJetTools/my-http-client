@@ -6,6 +6,7 @@ use rust_extensions::date_time::DateTimeAsMicroseconds;
 pub enum SendHyperPayloadError {
     Disconnected,
     Disposed,
+    UpgradedToWebsocket,
     RequestTimeout(Duration),
     HyperError {
         connected: DateTimeAsMicroseconds,

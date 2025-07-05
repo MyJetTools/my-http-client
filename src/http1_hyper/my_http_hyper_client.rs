@@ -5,6 +5,7 @@ use std::{
 };
 
 use bytes::Bytes;
+use http::StatusCode;
 use http_body_util::{combinators::BoxBody, Full};
 use rust_extensions::date_time::DateTimeAsMicroseconds;
 
@@ -32,7 +33,11 @@ impl<
     pub fn new(connector: TConnector) -> Self {
         Self {
             inner: Arc::new(MyHttpHyperClientInner::new(
-                connector.get_remote_endpoint().get_host_port().to_string(),
+                connector
+                    .get_remote_endpoint()
+                    .get_host_port()
+                    .to_string()
+                    .into(),
                 None,
             )),
             connector,
@@ -49,7 +54,11 @@ impl<
     ) -> Self {
         Self {
             inner: Arc::new(MyHttpHyperClientInner::new(
-                connector.get_remote_endpoint().get_host_port().to_string(),
+                connector
+                    .get_remote_endpoint()
+                    .get_host_port()
+                    .to_string()
+                    .into(),
                 Some(metrics),
             )),
             connector,
@@ -64,15 +73,34 @@ impl<
         self.connect_timeout = connection_timeout;
     }
 
+    async fn get_response(
+        &self,
+        req: hyper::Request<Full<Bytes>>,
+        response: hyper::Response<BoxBody<Bytes, String>>,
+    ) -> Result<HyperHttpResponse, MyHttpClientError> {
+        if response.status() == StatusCode::SWITCHING_PROTOCOLS {
+            self.inner.upgrade_to_websocket().await?;
+            let response = hyper_tungstenite::upgrade(req, None).unwrap();
+            let result = HyperHttpResponse::WebSocketUpgrade {
+                response: crate::utils::into_full_body_response(response.0),
+                web_socket: response.1,
+            };
+
+            return Ok(result);
+        }
+
+        Ok(HyperHttpResponse::Response(response))
+    }
+
     pub async fn do_request(
         &self,
         req: hyper::Request<Full<Bytes>>,
         request_timeout: Duration,
-    ) -> Result<hyper::Response<BoxBody<Bytes, String>>, MyHttpClientError> {
+    ) -> Result<HyperHttpResponse, MyHttpClientError> {
         let mut retry_no = 0;
         loop {
             let err = match self.inner.send_payload(&req, request_timeout).await {
-                Ok(response) => return Ok(response),
+                Ok(response) => return self.get_response(req, response).await,
                 Err(err) => err,
             };
 
@@ -112,6 +140,9 @@ impl<
                 }
                 SendHyperPayloadError::Disposed => {
                     return Err(MyHttpClientError::Disposed);
+                }
+                SendHyperPayloadError::UpgradedToWebsocket => {
+                    return Err(MyHttpClientError::UpgradedToWebSocket);
                 }
             }
         }
@@ -153,8 +184,9 @@ impl<
 
         *state = MyHttpHyperConnectionState::Connected {
             connected: DateTimeAsMicroseconds::now(),
-            send_request,
+            send_request: send_request,
             current_connection_id: connection_id,
+            upgraded_to_websocket: false,
         };
 
         if let Some(metrics) = self.inner.metrics.as_ref() {

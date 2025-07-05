@@ -9,6 +9,7 @@ pub enum MyHttpClientError {
     RequestTimeout(Duration),
     CanNotExecuteRequest(String),
     InvalidHttpHandshake(String),
+    HyperWebsocket(hyper_tungstenite::HyperWebsocket),
 }
 
 impl MyHttpClientError {

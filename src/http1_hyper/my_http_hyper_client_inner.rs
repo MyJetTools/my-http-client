@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, Full};
@@ -6,7 +6,7 @@ use hyper::client::conn::http1::SendRequest;
 use rust_extensions::date_time::DateTimeAsMicroseconds;
 use tokio::sync::Mutex;
 
-use crate::hyper::*;
+use crate::{hyper::*, MyHttpClientError};
 
 pub enum MyHttpHyperConnectionState {
     Disconnected,
@@ -15,7 +15,9 @@ pub enum MyHttpHyperConnectionState {
         current_connection_id: u64,
         connected: DateTimeAsMicroseconds,
         send_request: SendRequest<Full<Bytes>>,
+        upgraded_to_websocket: bool,
     },
+
     Disposed,
 }
 
@@ -30,13 +32,13 @@ impl MyHttpHyperConnectionState {
 
 pub struct MyHttpHyperClientInner {
     pub state: Mutex<MyHttpHyperConnectionState>,
-    pub name: String,
+    pub name: Arc<String>,
     pub metrics: Option<std::sync::Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>>,
 }
 
 impl MyHttpHyperClientInner {
     pub fn new(
-        name: String,
+        name: Arc<String>,
         metrics: Option<std::sync::Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>>,
     ) -> Self {
         Self {
@@ -63,11 +65,18 @@ impl MyHttpHyperClientInner {
                     current_connection_id,
                     connected,
                     send_request,
-                } => (
-                    send_request.send_request(req.clone()),
-                    *connected,
-                    *current_connection_id,
-                ),
+                    upgraded_to_websocket,
+                } => {
+                    if *upgraded_to_websocket {
+                        return Err(SendHyperPayloadError::UpgradedToWebsocket);
+                    }
+                    (
+                        send_request.send_request(req.clone()),
+                        *connected,
+                        *current_connection_id,
+                    )
+                }
+
                 MyHttpHyperConnectionState::Disposed => {
                     return Err(SendHyperPayloadError::Disposed);
                 }
@@ -111,7 +120,6 @@ impl MyHttpHyperClientInner {
             MyHttpHyperConnectionState::Disconnected => {
                 return;
             }
-
             MyHttpHyperConnectionState::Disposed => {
                 return;
             }
@@ -120,18 +128,44 @@ impl MyHttpHyperClientInner {
         *state = MyHttpHyperConnectionState::Disconnected;
     }
 
+    pub async fn upgrade_to_websocket(&self) -> Result<(), MyHttpClientError> {
+        let mut state = self.state.lock().await;
+
+        match &mut *state {
+            MyHttpHyperConnectionState::Disconnected => {
+                panic!("Http connection is disconnected");
+            }
+            MyHttpHyperConnectionState::Connected {
+                current_connection_id: _,
+                connected: _,
+                send_request: _,
+                upgraded_to_websocket,
+            } => {
+                if *upgraded_to_websocket {
+                    return Err(MyHttpClientError::UpgradedToWebSocket);
+                }
+
+                return Ok(());
+            }
+            MyHttpHyperConnectionState::Disposed => {
+                panic!("Attempt to upgrade http client to websocket in disposed state");
+            }
+        }
+    }
+
     pub async fn dispose(&self) {
         let mut state = self.state.lock().await;
 
-        match &*state {
-            MyHttpHyperConnectionState::Connected { .. } => {
-                if let Some(metrics) = self.metrics.as_ref() {
-                    metrics.disconnected(self.name.as_str());
-                }
-            }
-            MyHttpHyperConnectionState::Disconnected => {}
+        let disposed = match &*state {
+            MyHttpHyperConnectionState::Connected { .. } => true,
+            MyHttpHyperConnectionState::Disconnected => false,
+            MyHttpHyperConnectionState::Disposed => false,
+        };
 
-            MyHttpHyperConnectionState::Disposed => {}
+        if disposed {
+            if let Some(metrics) = self.metrics.as_ref() {
+                metrics.disconnected(self.name.as_str());
+            }
         }
 
         *state = MyHttpHyperConnectionState::Disposed;

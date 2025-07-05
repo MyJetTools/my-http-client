@@ -115,6 +115,9 @@ impl<
                 SendHyperPayloadError::Disposed => {
                     return Err(MyHttpClientError::Disposed);
                 }
+                SendHyperPayloadError::UpgradedToWebsocket => {
+                    return Err(MyHttpClientError::UpgradedToWebSocket);
+                }
             }
         }
     }
