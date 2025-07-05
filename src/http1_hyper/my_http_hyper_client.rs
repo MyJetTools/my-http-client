@@ -9,7 +9,7 @@ use http::StatusCode;
 use http_body_util::{combinators::BoxBody, Full};
 use rust_extensions::date_time::DateTimeAsMicroseconds;
 
-use crate::{MyHttpClientConnector, MyHttpClientError};
+use crate::{MyHttpClientConnector, MyHttpClientDisconnect, MyHttpClientError};
 
 use super::*;
 use crate::hyper::*;
@@ -217,5 +217,30 @@ impl<
 {
     fn from(value: TConnector) -> Self {
         Self::new(value)
+    }
+}
+
+impl<
+        TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + Sync + 'static,
+        TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
+    > MyHttpClientDisconnect for MyHttpHyperClient<TStream, TConnector>
+{
+    fn disconnect(&self) {
+        let inner = self.inner.clone();
+        let connection_id = self
+            .connection_id
+            .load(std::sync::atomic::Ordering::Relaxed);
+        tokio::spawn(async move { inner.disconnect(connection_id).await });
+    }
+    fn web_socket_disconnect(&self) {
+        let inner = self.inner.clone();
+        let connection_id = self
+            .connection_id
+            .load(std::sync::atomic::Ordering::Relaxed);
+        tokio::spawn(async move { inner.disconnect(connection_id).await });
+    }
+    fn get_connection_id(&self) -> u64 {
+        self.connection_id
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 }
