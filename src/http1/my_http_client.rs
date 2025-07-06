@@ -281,3 +281,13 @@ impl<
         });
     }
 }
+
+impl<
+        TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + Sync + 'static,
+        TConnector: MyHttpClientConnector<TStream> + Send + Sync + 'static,
+    > From<TConnector> for MyHttpClient<TStream, TConnector>
+{
+    fn from(value: TConnector) -> Self {
+        Self::new(value)
+    }
+}
