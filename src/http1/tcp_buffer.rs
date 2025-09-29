@@ -2,17 +2,21 @@ use super::HttpParseError;
 
 const CRLF: &[u8] = b"\r\n";
 
-const BUFFER_SIZE: usize = 65535;
+const BUFFER_SIZE: usize = 1024 * 512;
 pub struct TcpBuffer {
-    buffer: [u8; BUFFER_SIZE],
+    buffer: Vec<u8>,
     pub read_pos: usize,
     pub consumed_pos: usize,
 }
 
 impl TcpBuffer {
     pub fn new() -> Self {
+        let mut buffer = Vec::with_capacity(BUFFER_SIZE);
+        unsafe {
+            buffer.set_len(BUFFER_SIZE);
+        }
         Self {
-            buffer: [0u8; BUFFER_SIZE],
+            buffer,
             read_pos: 0,
             consumed_pos: 0,
         }
