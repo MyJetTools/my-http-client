@@ -68,7 +68,7 @@ pub async fn read_exact<TStream: tokio::io::AsyncRead>(
         let result = tokio::time::timeout(read_timeout, feature).await;
 
         if result.is_err() {
-            false;
+            return Err(HttpParseError::ReadingTimeout(read_timeout));
         }
 
         match result.unwrap() {

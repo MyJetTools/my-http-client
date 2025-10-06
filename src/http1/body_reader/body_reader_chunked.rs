@@ -111,40 +111,29 @@ pub async fn read_chunked_body<TStream: tokio::io::AsyncRead>(
 }
 
 fn parse_chunk_size(src: &[u8]) -> Result<usize, HttpParseError> {
-    let mut result = 0;
+    let mut end_of_hex = src.len();
 
-    let mut i = src.len() - 1;
+    for (i, &byte) in src.iter().enumerate() {
+        if !matches!(byte, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F') {
+            end_of_hex = i;
+            break;
+        }
+    }
 
-    let mut multiplier = 1;
-    loop {
-        let number = from_hex_number(src[i]).ok_or(HttpParseError::InvalidHttpPayload(
+    if end_of_hex == 0 {
+        return Err(HttpParseError::InvalidHttpPayload(
             format!(
-                "Invalid hex number: {:?}",
-                std::str::from_utf8(&src[i..]).unwrap()
+                "Invalid chunk size: {:?}",
+                std::str::from_utf8(src).unwrap()
             )
             .into(),
         ));
-
-        let number = number.unwrap();
-
-        result += number * multiplier;
-
-        multiplier *= 16;
-        if i == 0 {
-            break;
-        }
-
-        i -= 1;
     }
 
-    Ok(result)
-}
+    let hex_str = std::str::from_utf8(&src[0..end_of_hex])
+        .map_err(|_| HttpParseError::InvalidHttpPayload("Invalid UTF-8 in chunk size".into()))?;
 
-fn from_hex_number(c: u8) -> Option<usize> {
-    match c {
-        b'0'..=b'9' => Some((c - b'0') as usize),
-        b'a'..=b'f' => Some((c - b'a' + 10) as usize),
-        b'A'..=b'F' => Some((c - b'A' + 10) as usize),
-        _ => None,
-    }
+    usize::from_str_radix(hex_str, 16).map_err(|_| {
+        HttpParseError::InvalidHttpPayload(format!("Can not parse chunk size: {}", hex_str).into())
+    })
 }

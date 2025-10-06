@@ -28,7 +28,7 @@ impl MyHttpClientHeadersBuilder {
         }
     }
 
-    pub fn iter(&self) -> MyHttpClientHeadersBuilderIterator {
+    pub fn iter(&self) -> MyHttpClientHeadersBuilderIterator<'_> {
         MyHttpClientHeadersBuilderIterator::new(&self.headers)
     }
 
