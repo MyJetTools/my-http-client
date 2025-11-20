@@ -3,6 +3,7 @@ use http::{Method, Version};
 use http_body_util::{BodyExt, Full};
 use std::fmt::Write;
 
+#[derive(Clone)]
 pub struct MyHttpRequest {
     pub headers: Vec<u8>,
     pub body: Bytes,
