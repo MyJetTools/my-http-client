@@ -122,7 +122,7 @@ impl<
         }
     }
 
-    async fn connect(&self) -> Result<(), MyHttpClientError> {
+    pub async fn connect(&self) -> Result<(), MyHttpClientError> {
         let connection_id = self
             .connection_id
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);

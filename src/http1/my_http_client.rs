@@ -69,7 +69,7 @@ impl<
         self.connect_timeout = connect_timeout;
     }
 
-    async fn connect(&self) -> Result<(), MyHttpClientError> {
+    pub async fn connect(&self) -> Result<(), MyHttpClientError> {
         let connect_feature = self.connector.connect();
 
         let connect_result = tokio::time::timeout(self.connect_timeout, connect_feature).await;
