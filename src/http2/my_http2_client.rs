@@ -122,6 +122,79 @@ impl<
         }
     }
 
+    pub async fn do_extended_connect(
+        &self,
+        path: &str,
+        headers: hyper::HeaderMap,
+        request_timeout: Duration,
+    ) -> Result<hyper_util::rt::TokioIo<hyper::upgrade::Upgraded>, MyHttpClientError> {
+        self.connect().await?;
+
+        let authority = self
+            .connector
+            .get_remote_endpoint()
+            .get_host_port()
+            .to_string();
+
+        let mut req = hyper::Request::builder()
+            .method(hyper::Method::CONNECT)
+            .uri(format!("http://{}{}", authority, path))
+            .body(Full::new(Bytes::new()))
+            .map_err(|err| MyHttpClientError::CanNotExecuteRequest(err.to_string()))?;
+
+        *req.headers_mut() = headers;
+
+        req.extensions_mut()
+            .insert(hyper::ext::Protocol::from_static("websocket"));
+
+        let (send_fut, current_connection_id) = {
+            let mut state = self.inner.state.lock().await;
+            match &mut *state {
+                MyHttp2ConnectionState::Disconnected => {
+                    return Err(MyHttpClientError::Disconnected);
+                }
+                MyHttp2ConnectionState::Connected {
+                    send_request,
+                    current_connection_id,
+                    ..
+                } => (send_request.send_request(req), *current_connection_id),
+                MyHttp2ConnectionState::Disposed => {
+                    return Err(MyHttpClientError::Disposed);
+                }
+            }
+        };
+
+        let resp_result = tokio::time::timeout(request_timeout, send_fut).await;
+
+        let resp = match resp_result {
+            Err(_) => {
+                self.inner.disconnect(current_connection_id).await;
+                return Err(MyHttpClientError::RequestTimeout(request_timeout));
+            }
+            Ok(Err(err)) => {
+                self.inner.disconnect(current_connection_id).await;
+                return Err(MyHttpClientError::CanNotExecuteRequest(err.to_string()));
+            }
+            Ok(Ok(resp)) => resp,
+        };
+
+        if !resp.status().is_success() {
+            return Err(MyHttpClientError::CanNotExecuteRequest(format!(
+                "Extended CONNECT failed with status: {}",
+                resp.status()
+            )));
+        }
+
+        let upgraded = hyper::upgrade::on(resp).await.map_err(|err| {
+            MyHttpClientError::CanNotExecuteRequest(format!(
+                "Extended CONNECT upgrade failed: {}",
+                err
+            ))
+        })?;
+
+        Ok(hyper_util::rt::TokioIo::new(upgraded))
+    }
+
     pub async fn connect(&self) -> Result<(), MyHttpClientError> {
         let connection_id = self
             .connection_id
