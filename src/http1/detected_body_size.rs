@@ -7,9 +7,6 @@ pub enum DetectedBodySize {
 
 impl DetectedBodySize {
     pub fn is_unknown(&self) -> bool {
-        match self {
-            DetectedBodySize::Unknown => true,
-            _ => false,
-        }
+        matches!(self, DetectedBodySize::Unknown)
     }
 }

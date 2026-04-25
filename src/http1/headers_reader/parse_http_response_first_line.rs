@@ -4,36 +4,37 @@ use super::super::HttpParseError;
 
 pub fn parse_http_response_first_line(src: &[u8]) -> Result<(StatusCode, Version), HttpParseError> {
     let src = std::str::from_utf8(src).map_err(|_| {
-        HttpParseError::InvalidHttpPayload(
-            "Invalid HTTP first line. Can not convert payload to UTF8 string".into(),
+        HttpParseError::invalid_payload(
+            "Invalid HTTP first line. Can not convert payload to UTF8 string",
         )
     })?;
 
     let mut lines = src.split(' ');
 
-    let protocol_version = lines.next().ok_or(HttpParseError::InvalidHttpPayload(
-        format!("Invalid Http First Line: [{}]", src).into(),
-    ))?;
+    let protocol_version = lines.next().ok_or_else(|| {
+        HttpParseError::invalid_payload(format!("Invalid Http First Line: [{}]", src))
+    })?;
 
     let protocol_version = match protocol_version {
         "HTTP/1.0" => http::Version::HTTP_10,
         "HTTP/1.1" => http::Version::HTTP_11,
         _ => {
-            println!("Http line is: [{}]", src);
-            return Err(HttpParseError::InvalidHttpPayload(
-                format!("Not supported HTTP protocol. [{}].", protocol_version).into(),
-            ));
+            return Err(HttpParseError::invalid_payload(format!(
+                "Not supported HTTP protocol. [{}].",
+                protocol_version
+            )));
         }
     };
 
-    let status_code = lines.next().ok_or(HttpParseError::InvalidHttpPayload(
-        format!("Invalid Http First Line: [{}]", src).into(),
-    ))?;
+    let status_code = lines.next().ok_or_else(|| {
+        HttpParseError::invalid_payload(format!("Invalid Http First Line: [{}]", src))
+    })?;
 
     let status_code = status_code.parse().map_err(|err| {
-        HttpParseError::InvalidHttpPayload(
-            format!("Invalid HTTP status code [{}]. Err: {}", status_code, err).into(),
-        )
+        HttpParseError::invalid_payload(format!(
+            "Invalid HTTP status code [{}]. Err: {}",
+            status_code, err
+        ))
     })?;
 
     Ok((status_code, protocol_version))

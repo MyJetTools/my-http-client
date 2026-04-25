@@ -11,21 +11,14 @@ pub async fn read_to_buffer<TStream: tokio::io::AsyncRead>(
     print_http_payload: bool,
 ) -> Result<(), HttpParseError> {
     let write_buf = match tcp_buffer.get_write_buf() {
-        Some(write_buf) => write_buf,
-        None => {
-            return Err(HttpParseError::InvalidHttpPayload(
-                format!(
-                    "Write Buffer is too small to read http headers. Size: [{}]",
-                    tcp_buffer.get_total_buffer_size()
-                )
-                .into(),
-            ));
+        Some(write_buf) if !write_buf.is_empty() => write_buf,
+        _ => {
+            return Err(HttpParseError::invalid_payload(format!(
+                "Write Buffer is too small to read http headers. Size: [{}]",
+                tcp_buffer.get_total_buffer_size()
+            )));
         }
     };
-
-    if write_buf.len() == 0 {
-        panic!("Payload must be not empty");
-    }
 
     let result = tokio::time::timeout(read_time_out, read.read(write_buf)).await;
 
@@ -48,11 +41,9 @@ pub async fn read_to_buffer<TStream: tokio::io::AsyncRead>(
                 println!("Resp: [{:?}]", std::str::from_utf8(buf));
             }
 
-            return Ok(());
+            Ok(())
         }
-        Err(err) => {
-            return Err(HttpParseError::Error(err.to_string().into()));
-        }
+        Err(err) => Err(HttpParseError::error(err.to_string())),
     }
 }
 
@@ -84,9 +75,10 @@ pub async fn read_exact<TStream: tokio::io::AsyncRead>(
                 }
             }
             Err(err) => {
-                return Err(HttpParseError::Error(
-                    format!("Error reading exact buffer: {:?}", err).into(),
-                ))
+                return Err(HttpParseError::error(format!(
+                    "Error reading exact buffer: {:?}",
+                    err
+                )))
             }
         }
     }

@@ -11,8 +11,8 @@ pub fn parse_http_header(
     let pos = src.find_byte_pos(b':', 0);
 
     if pos.is_none() {
-        return Err(HttpParseError::InvalidHttpPayload(
-            "Can not find separator between HTTP header and Http response".into(),
+        return Err(HttpParseError::invalid_payload(
+            "Can not find separator between HTTP header and Http response",
         ));
     }
 
@@ -20,15 +20,15 @@ pub fn parse_http_header(
 
     let name = &src[..pos];
     let name = std::str::from_utf8(name).map_err(|_| {
-        HttpParseError::InvalidHttpPayload(
-            "Invalid HTTP header name. Can not convert payload to UTF8 string".into(),
+        HttpParseError::invalid_payload(
+            "Invalid HTTP header name. Can not convert payload to UTF8 string",
         )
     })?;
 
     let value = &src[pos + 1..];
     let value_str = std::str::from_utf8(value).map_err(|_| {
-        HttpParseError::InvalidHttpPayload(
-            "Invalid HTTP value. Can not convert payload to UTF8 string".into(),
+        HttpParseError::invalid_payload(
+            "Invalid HTTP value. Can not convert payload to UTF8 string",
         )
     })?;
 
@@ -43,33 +43,29 @@ pub fn parse_http_header(
                 } else {
                     value_str
                 };
-                return Err(HttpParseError::InvalidHttpPayload(
-                    format!("Invalid Content-Length value: {}", value_str).into(),
-                ));
+                return Err(HttpParseError::invalid_payload(format!(
+                    "Invalid Content-Length value: {}",
+                    value_str
+                )));
             }
         }
     }
 
-    if name.eq_ignore_ascii_case("Transfer-Encoding") {
-        if value_str.eq_ignore_ascii_case("chunked") {
-            body_size = DetectedBodySize::Chunked;
-        }
+    if name.eq_ignore_ascii_case("Transfer-Encoding")
+        && value_str.eq_ignore_ascii_case("chunked")
+    {
+        body_size = DetectedBodySize::Chunked;
     }
 
-    if name.eq_ignore_ascii_case("upgrade") {
-        if value_str.eq_ignore_ascii_case("websocket") {
-            body_size = DetectedBodySize::WebSocketUpgrade;
-        }
+    if name.eq_ignore_ascii_case("upgrade") && value_str.eq_ignore_ascii_case("websocket") {
+        body_size = DetectedBodySize::WebSocketUpgrade;
     }
 
     let header_value = HeaderValue::from_str(value_str).map_err(|err| {
-        HttpParseError::InvalidHttpPayload(
-            format!(
-                "Invalid Header value. {}: {}. Err: {}",
-                name, value_str, err
-            )
-            .into(),
-        )
+        HttpParseError::invalid_payload(format!(
+            "Invalid Header value. {}: {}. Err: {}",
+            name, value_str, err
+        ))
     })?;
 
     builder = builder.header(name, header_value);

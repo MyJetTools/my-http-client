@@ -21,18 +21,9 @@ pub async fn wrap_http1_endpoint<
     let handshake_result = hyper::client::conn::http1::handshake(io).await;
     match handshake_result {
         Ok((mut sender, conn)) => {
-            let remote_host_spawned = remote_host.to_string();
             tokio::task::spawn(async move {
-                if let Err(err) = conn.with_upgrades().await {
-                    println!(
-                        "Http Connection to {} is failed: {:?}",
-                        remote_host_spawned, err
-                    );
-                }
-
+                let _ = conn.with_upgrades().await;
                 inner.disconnect(connection_id).await;
-
-                //Here
             });
 
             let result = sender.ready().await;
@@ -44,10 +35,10 @@ pub async fn wrap_http1_endpoint<
                 )));
             }
 
-            return Ok(sender);
+            Ok(sender)
         }
         Err(err) => {
-            return Err(MyHttpClientError::InvalidHttpHandshake(format!("{}", err)));
+            Err(MyHttpClientError::InvalidHttpHandshake(format!("{}", err)))
         }
     }
 }

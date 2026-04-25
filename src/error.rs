@@ -14,16 +14,10 @@ pub enum MyHttpClientError {
 
 impl MyHttpClientError {
     pub fn is_web_socket_upgraded(&self) -> bool {
-        match self {
-            MyHttpClientError::UpgradedToWebSocket => true,
-            _ => false,
-        }
+        matches!(self, MyHttpClientError::UpgradedToWebSocket)
     }
 
     pub fn is_retirable(&self) -> bool {
-        match self {
-            MyHttpClientError::Disconnected => true,
-            _ => false,
-        }
+        matches!(self, MyHttpClientError::Disconnected)
     }
 }

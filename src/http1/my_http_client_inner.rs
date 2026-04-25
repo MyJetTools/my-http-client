@@ -1,4 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use rust_extensions::TaskCompletion;
 
@@ -28,23 +34,12 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
 {
     pub fn get_payload_to_send(
         &mut self,
-    ) -> Option<(&mut WriteHalf<TStream>, Vec<u8>, u64, Duration)> {
+    ) -> Option<(&mut WriteHalf<TStream>, Vec<u8>, Duration)> {
         match self {
             WritePartState::Connected(inner) => {
-                let payload = inner.queue_to_deliver.take();
-
-                if payload.is_none() {
-                    return None;
-                }
-
+                let payload = inner.queue_to_deliver.take()?;
                 let write_stream = inner.write_stream.as_mut().unwrap();
-
-                Some((
-                    write_stream,
-                    payload.unwrap(),
-                    inner.connection_id,
-                    inner.send_to_socket_timeout,
-                ))
+                Some((write_stream, payload, inner.send_to_socket_timeout))
             }
             WritePartState::UpgradedToWebSocket(_) => None,
             WritePartState::Disconnected => None,
@@ -52,10 +47,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         }
     }
     pub fn is_disposed(&self) -> bool {
-        match self {
-            WritePartState::Disposed => true,
-            _ => false,
-        }
+        matches!(self, WritePartState::Disposed)
     }
 }
 
@@ -73,14 +65,6 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             WritePartState::Disposed => Err(MyHttpClientError::Disposed),
         }
     }
-
-    pub fn is_active_connection(&self, connection_id: u64) -> bool {
-        match self {
-            WritePartState::Connected(inner) => inner.connection_id == connection_id,
-            WritePartState::UpgradedToWebSocket(inner) => inner.connection_id == connection_id,
-            _ => false,
-        }
-    }
 }
 
 pub struct MyHttpClientInner<
@@ -90,6 +74,10 @@ pub struct MyHttpClientInner<
         WritePartState<TStream>,
         Option<tokio::sync::mpsc::Sender<WriteLoopEvent>>,
     )>,
+
+    connection_id: AtomicU64,
+    waiting_ws_upgrade: AtomicBool,
+    pub queue_of_requests: QueueOfRequests<TStream>,
 
     pub metrics: Option<Arc<dyn super::MyHttpClientMetrics + Send + Sync + 'static>>,
     pub name: Arc<String>,
@@ -104,6 +92,9 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
     ) -> Self {
         let result = Self {
             state: Mutex::new((WritePartState::Disconnected, None)),
+            connection_id: AtomicU64::new(0),
+            waiting_ws_upgrade: AtomicBool::new(false),
+            queue_of_requests: QueueOfRequests::new(),
 
             metrics,
             name: Arc::new(name),
@@ -138,23 +129,19 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         state.0 = WritePartState::Connected(MyHttpClientConnectionContext {
             write_stream: Some(write_stream),
             queue_to_deliver: None,
-            connection_id,
-            queue_of_requests: QueueOfRequests::new(),
             send_to_socket_timeout,
-            waiting_to_web_socket_upgrade: false,
         });
+
+        self.waiting_ws_upgrade.store(false, Ordering::Relaxed);
+        self.connection_id.store(connection_id, Ordering::Release);
 
         if let Some(metrics) = self.metrics.as_ref() {
             metrics.tcp_connect(&self.name);
         }
     }
 
-    pub async fn is_my_connection_id(&self, connection_id: u64) -> bool {
-        let state = self.state.lock().await;
-        match &state.0 {
-            WritePartState::Connected(context) => context.connection_id == connection_id,
-            _ => false,
-        }
+    pub fn is_my_connection_id(&self, connection_id: u64) -> bool {
+        self.connection_id.load(Ordering::Acquire) == connection_id
     }
 
     pub async fn send(
@@ -168,7 +155,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             let mut task = TaskCompletion::new();
             let awaiter = task.get_awaiter();
 
-            connection_context.queue_of_requests.push(task).await;
+            self.queue_of_requests.push(task);
 
             match connection_context.queue_to_deliver.as_mut() {
                 Some(vec) => {
@@ -181,7 +168,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
                 }
             }
 
-            (awaiter, connection_context.connection_id)
+            (awaiter, self.connection_id.load(Ordering::Relaxed))
         };
 
         let _ = writer
@@ -202,69 +189,51 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
 
         match &mut state.0 {
             WritePartState::Connected(context) => {
-                if context.connection_id != connection_id {
+                if self.connection_id.load(Ordering::Relaxed) != connection_id {
                     return Err(MyHttpClientError::Disconnected);
                 }
 
                 let result = context.write_stream.take();
 
-                state.0 = WritePartState::UpgradedToWebSocket(WebSocketContextModel::new(
-                    self.name.clone(),
-                    connection_id,
-                ));
+                state.0 =
+                    WritePartState::UpgradedToWebSocket(WebSocketContextModel::new(self.name.clone()));
 
                 if let Some(metrics) = self.metrics.as_ref() {
                     metrics.upgraded_to_websocket(&self.name);
                 }
                 Ok(result.unwrap())
             }
-            WritePartState::UpgradedToWebSocket(_) => {
-                return Err(MyHttpClientError::UpgradedToWebSocket);
-            }
-            WritePartState::Disconnected => {
-                return Err(MyHttpClientError::Disconnected);
-            }
-            WritePartState::Disposed => {
-                return Err(MyHttpClientError::Disposed);
-            }
+            WritePartState::UpgradedToWebSocket(_) => Err(MyHttpClientError::UpgradedToWebSocket),
+            WritePartState::Disconnected => Err(MyHttpClientError::Disconnected),
+            WritePartState::Disposed => Err(MyHttpClientError::Disposed),
         }
     }
 
-    pub async fn pop_request(
+    pub fn pop_request(
         &self,
         connection_id: u64,
         web_socket_upgrade: bool,
     ) -> Option<HttpAwaitingTask<TStream>> {
-        let mut state = self.state.lock().await;
-        let result = match &mut state.0 {
-            WritePartState::Connected(context) => {
-                if context.connection_id != connection_id {
-                    return None;
-                }
+        if self.connection_id.load(Ordering::Acquire) != connection_id {
+            return None;
+        }
 
-                if web_socket_upgrade {
-                    context.waiting_to_web_socket_upgrade = true;
-                }
+        if web_socket_upgrade {
+            self.waiting_ws_upgrade.store(true, Ordering::Relaxed);
+        }
 
-                context.queue_of_requests.pop().await
-            }
-            _ => None,
-        };
-
-        result
+        self.queue_of_requests.pop()
     }
 
     pub async fn flush(&self, connection_id: u64) {
         let mut state = self.state.lock().await;
 
-        let mut has_error = false;
-        if let Some((stream, payload, payload_connection_id, send_to_socket_timeout)) =
-            state.0.get_payload_to_send()
-        {
-            if payload_connection_id != connection_id {
-                return;
-            }
+        if self.connection_id.load(Ordering::Relaxed) != connection_id {
+            return;
+        }
 
+        let mut has_error = false;
+        if let Some((stream, payload, send_to_socket_timeout)) = state.0.get_payload_to_send() {
             for chunk in payload.chunks(1024 * 1024) {
                 let future = stream.write_all(chunk);
 
@@ -285,17 +254,27 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
         }
 
         if has_error {
-            state.0 = WritePartState::Disconnected;
+            self.connection_id.store(0, Ordering::Release);
+            self.process_disconnect(&mut state.0, WritePartState::Disconnected)
+                .await;
         }
     }
 
     pub async fn disconnect(&self, connection_id: u64) {
         let mut state = self.state.lock().await;
 
-        if !state.0.is_active_connection(connection_id) {
+        if self.connection_id.load(Ordering::Relaxed) != connection_id {
             return;
         }
 
+        if matches!(
+            state.0,
+            WritePartState::Disconnected | WritePartState::Disposed
+        ) {
+            return;
+        }
+
+        self.connection_id.store(0, Ordering::Release);
         self.process_disconnect(&mut state.0, WritePartState::Disconnected)
             .await;
     }
@@ -313,7 +292,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
                 if let Some(mut write_stream) = context.write_stream.take() {
                     let _ = write_stream.shutdown().await;
                 }
-                context.queue_of_requests.notify_connection_lost().await;
+                self.queue_of_requests.notify_connection_lost();
             }
             WritePartState::UpgradedToWebSocket(_) => {
                 if let Some(metrics) = self.metrics.as_ref() {
@@ -327,29 +306,28 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
     }
 
     pub async fn read_loop_stopped(&self, connection_id: u64) {
+        if self.waiting_ws_upgrade.load(Ordering::Relaxed) {
+            return;
+        }
+
         let mut state = self.state.lock().await;
 
-        let disconnect = match &state.0 {
-            WritePartState::Connected(ctx) => {
-                if ctx.waiting_to_web_socket_upgrade {
-                    false
-                } else {
-                    ctx.connection_id == connection_id
-                }
-            }
-            WritePartState::UpgradedToWebSocket(_) => false,
-            WritePartState::Disconnected => false,
-            WritePartState::Disposed => false,
-        };
-
-        if disconnect {
-            self.process_disconnect(&mut state.0, WritePartState::Disconnected)
-                .await;
+        if self.connection_id.load(Ordering::Relaxed) != connection_id {
+            return;
         }
+
+        if !matches!(state.0, WritePartState::Connected(_)) {
+            return;
+        }
+
+        self.connection_id.store(0, Ordering::Release);
+        self.process_disconnect(&mut state.0, WritePartState::Disconnected)
+            .await;
     }
 
     pub async fn dispose(&self) {
         let mut state = self.state.lock().await;
+        self.connection_id.store(0, Ordering::Release);
         self.process_disconnect(&mut state.0, WritePartState::Disposed)
             .await;
 

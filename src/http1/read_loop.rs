@@ -23,7 +23,7 @@ pub async fn read_loop<
     } else {
         false
     };
-    while inner.is_my_connection_id(connection_id).await {
+    while inner.is_my_connection_id(connection_id) {
         if do_read_to_buffer || tcp_buffer.is_empty() {
             super::read_with_timeout::read_to_buffer(
                 &mut read_stream,
@@ -55,7 +55,7 @@ pub async fn read_loop<
                     )
                     .await?;
 
-                    let request = inner.pop_request(connection_id, false).await;
+                    let request = inner.pop_request(connection_id, false);
                     if let Some(mut request) = request {
                         let result = request.try_set_ok(HttpTask::Response(response));
 
@@ -65,7 +65,7 @@ pub async fn read_loop<
                     }
                 }
                 BodyReader::Chunked { response, sender } => {
-                    let request = inner.pop_request(connection_id, false).await;
+                    let request = inner.pop_request(connection_id, false);
                     if let Some(mut request) = request {
                         let result = request.try_set_ok(HttpTask::Response(response));
 
@@ -85,7 +85,7 @@ pub async fn read_loop<
                 }
                 BodyReader::WebSocketUpgrade(mut builder) => {
                     let upgrade_response = builder.take_upgrade_response();
-                    let request = inner.pop_request(connection_id, true).await;
+                    let request = inner.pop_request(connection_id, true);
                     if let Some(mut request) = request {
                         let _ = request.try_set_ok(HttpTask::WebsocketUpgrade {
                             response: upgrade_response,

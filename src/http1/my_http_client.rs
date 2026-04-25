@@ -34,15 +34,15 @@ impl<
             None,
         ));
 
-        let result = Self {
+        
+
+        Self {
             inner,
             connector,
             send_to_socket_timeout: std::time::Duration::from_secs(30),
             connect_timeout: std::time::Duration::from_secs(5),
             read_from_stream_timeout: std::time::Duration::from_secs(120),
-        };
-
-        result
+        }
     }
 
     pub fn new_with_metrics(
@@ -54,15 +54,15 @@ impl<
             Some(metrics),
         ));
 
-        let result = Self {
+        
+
+        Self {
             inner,
             connector,
             send_to_socket_timeout: std::time::Duration::from_secs(30),
             connect_timeout: std::time::Duration::from_secs(5),
             read_from_stream_timeout: std::time::Duration::from_secs(120),
-        };
-
-        result
+        }
     }
 
     pub fn set_connect_timeout(&mut self, connect_timeout: std::time::Duration) {
@@ -146,10 +146,10 @@ impl<
 
                 if let Err(err) = &resp {
                     if let Some(invalid_payload_reason) = err.as_invalid_payload() {
-                        let task = inner_cloned.pop_request(current_connection_id, false).await;
+                        let task = inner_cloned.pop_request(current_connection_id, false);
 
                         if let Some(mut task) = task {
-                            let _ = task.set_error(MyHttpClientError::CanNotExecuteRequest(
+                            task.set_error(MyHttpClientError::CanNotExecuteRequest(
                                 invalid_payload_reason.to_string(),
                             ));
                         }
@@ -162,27 +162,23 @@ impl<
             })
             .await;
 
-            if debug {
-                match err {
-                    Ok(ok) => {
-                        if let Err(err) = ok {
-                            if debug {
-                                println!("Read loop exited with error: {:?}", err);
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        if let Some(mut task) =
-                            inner.pop_request(current_connection_id, false).await
-                        {
-                            let _ = task.set_error(MyHttpClientError::CanNotExecuteRequest(
-                                "Request is panicked".to_string(),
-                            ));
-                            inner.disconnect(current_connection_id).await;
-                        }
+            match err {
+                Ok(ok) => {
+                    if let Err(err) = ok {
                         if debug {
                             println!("Read loop exited with error: {:?}", err);
                         }
+                    }
+                }
+                Err(err) => {
+                    if let Some(mut task) = inner.pop_request(current_connection_id, false) {
+                        task.set_error(MyHttpClientError::CanNotExecuteRequest(
+                            "Request is panicked".to_string(),
+                        ));
+                    }
+                    inner.disconnect(current_connection_id).await;
+                    if debug {
+                        println!("Read loop exited with error: {:?}", err);
                     }
                 }
             }
@@ -246,7 +242,7 @@ impl<
 
         match task {
             HttpTask::Response(response) => {
-                return Ok(MyHttpResponse::Response(response));
+                Ok(MyHttpResponse::Response(response))
             }
             HttpTask::WebsocketUpgrade {
                 response,
@@ -255,14 +251,14 @@ impl<
                 let write_part = self.inner.upgrade_to_websocket(connection_id).await?;
 
                 let stream = TConnector::reunite(read_part, write_part);
-                return Ok(MyHttpResponse::WebSocketUpgrade {
+                Ok(MyHttpResponse::WebSocketUpgrade {
                     stream,
                     response,
                     disconnection: Arc::new(MyHttpClientDisconnection::new(
                         self.inner.clone(),
                         connection_id,
                     )),
-                });
+                })
             }
         }
     }

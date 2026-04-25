@@ -23,10 +23,7 @@ pub enum MyHttpHyperConnectionState {
 
 impl MyHttpHyperConnectionState {
     pub fn is_connected(&self) -> bool {
-        match self {
-            Self::Connected { .. } => true,
-            _ => false,
-        }
+        matches!(self, Self::Connected { .. })
     }
 }
 
@@ -145,7 +142,7 @@ impl MyHttpHyperClientInner {
                     return Err(MyHttpClientError::UpgradedToWebSocket);
                 }
 
-                return Ok(());
+                Ok(())
             }
             MyHttpHyperConnectionState::Disposed => {
                 panic!("Attempt to upgrade http client to websocket in disposed state");

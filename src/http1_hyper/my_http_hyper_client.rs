@@ -42,7 +42,7 @@ impl<
             )),
             connector,
 
-            stream: PhantomData::default(),
+            stream: PhantomData,
             connect_timeout: Duration::from_secs(5),
             connection_id: AtomicU64::new(0),
         }
@@ -63,7 +63,7 @@ impl<
             )),
             connector,
 
-            stream: PhantomData::default(),
+            stream: PhantomData,
             connect_timeout: Duration::from_secs(5),
             connection_id: AtomicU64::new(0),
         }
@@ -184,7 +184,7 @@ impl<
 
         *state = MyHttpHyperConnectionState::Connected {
             connected: DateTimeAsMicroseconds::now(),
-            send_request: send_request,
+            send_request,
             current_connection_id: connection_id,
             upgraded_to_websocket: false,
         };

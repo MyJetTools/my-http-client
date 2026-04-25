@@ -2,8 +2,9 @@ use std::collections::VecDeque;
 
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
+use parking_lot::Mutex;
 use rust_extensions::{TaskCompletion, TaskCompletionAwaiter};
-use tokio::{io::ReadHalf, sync::Mutex};
+use tokio::io::ReadHalf;
 
 use crate::MyHttpClientError;
 
@@ -44,6 +45,12 @@ pub struct QueueOfRequests<TStream: tokio::io::AsyncRead + Send + Sync + 'static
     queue: Mutex<VecDeque<HttpAwaitingTask<TStream>>>,
 }
 
+impl<TStream: tokio::io::AsyncRead + Send + Sync + 'static> Default for QueueOfRequests<TStream> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<TStream: tokio::io::AsyncRead + Send + Sync + 'static> QueueOfRequests<TStream> {
     pub fn new() -> Self {
         Self {
@@ -51,16 +58,16 @@ impl<TStream: tokio::io::AsyncRead + Send + Sync + 'static> QueueOfRequests<TStr
         }
     }
 
-    pub async fn push(&self, task: HttpAwaitingTask<TStream>) {
-        self.queue.lock().await.push_back(task);
+    pub fn push(&self, task: HttpAwaitingTask<TStream>) {
+        self.queue.lock().push_back(task);
     }
 
-    pub async fn pop(&self) -> Option<HttpAwaitingTask<TStream>> {
-        self.queue.lock().await.pop_front()
+    pub fn pop(&self) -> Option<HttpAwaitingTask<TStream>> {
+        self.queue.lock().pop_front()
     }
 
-    pub async fn notify_connection_lost(&self) {
-        let mut queue = self.queue.lock().await;
+    pub fn notify_connection_lost(&self) {
+        let mut queue = self.queue.lock();
         while let Some(mut task) = queue.pop_front() {
             let _ = task.try_set_error(MyHttpClientError::Disconnected);
         }

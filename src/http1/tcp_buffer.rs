@@ -9,14 +9,16 @@ pub struct TcpBuffer {
     pub consumed_pos: usize,
 }
 
+impl Default for TcpBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TcpBuffer {
     pub fn new() -> Self {
-        let mut buffer = Vec::with_capacity(BUFFER_SIZE);
-        unsafe {
-            buffer.set_len(BUFFER_SIZE);
-        }
         Self {
-            buffer,
+            buffer: vec![0u8; BUFFER_SIZE],
             read_pos: 0,
             consumed_pos: 0,
         }
@@ -33,8 +35,6 @@ impl TcpBuffer {
         let mut dest_pos = 0;
 
         let mut remains_to_move = self.read_pos - pos;
-
-        //println!("Compacting data {}", remains_to_move);
 
         let size = remains_to_move;
 
@@ -86,7 +86,7 @@ impl TcpBuffer {
         self.read_pos += pos;
     }
 
-    pub fn read_until_crlf<'s>(&'s mut self) -> Option<&'s [u8]> {
+    pub fn read_until_crlf(&mut self) -> Option<&[u8]> {
         let mut pos = self.consumed_pos;
 
         while pos < self.read_pos - 1 {

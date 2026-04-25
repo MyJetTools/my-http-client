@@ -88,7 +88,6 @@ fn build_h2_headers(headers: &[u8], is_https: bool) -> Builder {
     }
 
     let uri = if let Some(host) = host {
-        println!("{:?}", host);
         if is_https {
             Uri::builder()
                 .scheme("https")
@@ -132,14 +131,14 @@ fn extract_name_and_value(line: &[u8]) -> (&str, &str) {
                 let name = std::str::from_utf8_unchecked(name);
                 let value = std::str::from_utf8_unchecked(value);
 
-                return (name, value);
-            };
+                (name, value)
+            }
         }
         None => {
             unsafe {
                 let name = std::str::from_utf8_unchecked(line);
-                return (name, "");
-            };
+                (name, "")
+            }
         }
     }
 }

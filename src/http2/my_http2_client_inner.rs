@@ -21,10 +21,7 @@ pub enum MyHttp2ConnectionState {
 
 impl MyHttp2ConnectionState {
     pub fn is_connected(&self) -> bool {
-        match self {
-            Self::Connected { .. } => true,
-            _ => false,
-        }
+        matches!(self, Self::Connected { .. })
     }
 }
 

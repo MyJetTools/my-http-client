@@ -23,15 +23,8 @@ pub async fn wrap_http2_endpoint<
 
     match handshake_result {
         Ok((mut sender, conn)) => {
-            let remote_host_spawned = remote_host.to_string();
             tokio::task::spawn(async move {
-                if let Err(err) = conn.await {
-                    println!(
-                        "Http2 Connection to {} is finished with error: {:?}",
-                        remote_host_spawned, err
-                    );
-                }
-
+                let _ = conn.await;
                 inner.disconnect(connection_id).await;
             });
 
@@ -42,13 +35,13 @@ pub async fn wrap_http2_endpoint<
                 )));
             }
 
-            return Ok(sender);
+            Ok(sender)
         }
         Err(err) => {
-            return Err(MyHttpClientError::CanNotConnectToRemoteHost(format!(
+            Err(MyHttpClientError::CanNotConnectToRemoteHost(format!(
                 "Can not establish Http2 connection to '{remote_host}'. Http2 handshake Error: {}",
                 err
-            )));
+            )))
         }
     }
 }

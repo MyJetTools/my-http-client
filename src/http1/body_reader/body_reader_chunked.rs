@@ -5,7 +5,7 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, StreamBody};
 use tokio::io::ReadHalf;
 
-use crate::http1::{HttpParseError, TcpBuffer};
+use crate::http1::{HttpParseError, TcpBuffer, MAX_CHUNK_SIZE};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ChunksReadingMode {
@@ -43,7 +43,7 @@ pub async fn read_chunked_body<TStream: tokio::io::AsyncRead>(
             read_stream,
             tcp_buffer,
             read_timeout,
-            |str| parse_chunk_size(str),
+            parse_chunk_size,
             print_input_http_stream,
         )
         .await?;
@@ -65,11 +65,14 @@ pub async fn read_chunked_body<TStream: tokio::io::AsyncRead>(
             return Ok(());
         }
 
-        let mut chunk: Vec<u8> = Vec::with_capacity(chunk_size);
-
-        unsafe {
-            chunk.set_len(chunk_size);
+        if chunk_size > MAX_CHUNK_SIZE {
+            return Err(HttpParseError::invalid_payload(format!(
+                "Chunk size {} exceeds limit {}",
+                chunk_size, MAX_CHUNK_SIZE
+            )));
         }
+
+        let mut chunk: Vec<u8> = vec![0u8; chunk_size];
 
         let mut read_amount = 0;
 
@@ -94,9 +97,10 @@ pub async fn read_chunked_body<TStream: tokio::io::AsyncRead>(
             .await;
 
         if let Err(err) = err {
-            return Err(HttpParseError::Error(
-                format!("Error sending response chunk: {:?}", err).into(),
-            ));
+            return Err(HttpParseError::error(format!(
+                "Error sending response chunk: {:?}",
+                err
+            )));
         }
 
         super::super::read_with_timeout::skip_exactly(
@@ -114,26 +118,23 @@ fn parse_chunk_size(src: &[u8]) -> Result<usize, HttpParseError> {
     let mut end_of_hex = src.len();
 
     for (i, &byte) in src.iter().enumerate() {
-        if !matches!(byte, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F') {
+        if !byte.is_ascii_hexdigit() {
             end_of_hex = i;
             break;
         }
     }
 
     if end_of_hex == 0 {
-        return Err(HttpParseError::InvalidHttpPayload(
-            format!(
-                "Invalid chunk size: {:?}",
-                std::str::from_utf8(src).unwrap()
-            )
-            .into(),
-        ));
+        return Err(HttpParseError::invalid_payload(format!(
+            "Invalid chunk size: {:?}",
+            std::str::from_utf8(src).unwrap()
+        )));
     }
 
     let hex_str = std::str::from_utf8(&src[0..end_of_hex])
-        .map_err(|_| HttpParseError::InvalidHttpPayload("Invalid UTF-8 in chunk size".into()))?;
+        .map_err(|_| HttpParseError::invalid_payload("Invalid UTF-8 in chunk size"))?;
 
     usize::from_str_radix(hex_str, 16).map_err(|_| {
-        HttpParseError::InvalidHttpPayload(format!("Can not parse chunk size: {}", hex_str).into())
+        HttpParseError::invalid_payload(format!("Can not parse chunk size: {}", hex_str))
     })
 }

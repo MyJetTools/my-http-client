@@ -24,7 +24,9 @@ impl MyHttpRequest {
 
         headers_src.copy_to(&mut result.headers);
 
-        if result.body.len() > 0 {
+        if !result.body.is_empty()
+            && !super::headers_contains(&result.headers, super::CONTENT_LENGTH_HEADER_NAME)
+        {
             crate::headers::write_header(
                 &mut result.headers,
                 super::CONTENT_LENGTH_HEADER_NAME,

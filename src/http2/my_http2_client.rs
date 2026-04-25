@@ -37,7 +37,7 @@ impl<
             )),
             connector,
 
-            stream: PhantomData::default(),
+            stream: PhantomData,
             connect_timeout: Duration::from_secs(5),
             connection_id: AtomicU64::new(0),
         }
@@ -54,7 +54,7 @@ impl<
             )),
             connector,
 
-            stream: PhantomData::default(),
+            stream: PhantomData,
             connect_timeout: Duration::from_secs(5),
             connection_id: AtomicU64::new(0),
         }

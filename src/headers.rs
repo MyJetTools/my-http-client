@@ -11,6 +11,12 @@ pub struct MyHttpClientHeadersBuilder {
     headers: Vec<u8>,
 }
 
+impl Default for MyHttpClientHeadersBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MyHttpClientHeadersBuilder {
     pub fn new() -> Self {
         Self {
@@ -122,7 +128,40 @@ mod tests {
     }
 }
 
+pub fn validate_header_name(name: &str) {
+    if name.is_empty() {
+        panic!("HTTP header name must not be empty");
+    }
+    for &b in name.as_bytes() {
+        if !is_valid_header_name_byte(b) {
+            panic!("HTTP header name contains forbidden byte 0x{:02x}", b);
+        }
+    }
+}
+
+pub fn validate_header_value(value: &str) {
+    for &b in value.as_bytes() {
+        if b == b'\r' || b == b'\n' || b == 0 {
+            panic!(
+                "HTTP header value contains forbidden control byte 0x{:02x} (header injection)",
+                b
+            );
+        }
+    }
+}
+
+fn is_valid_header_name_byte(b: u8) -> bool {
+    matches!(
+        b,
+        b'!' | b'#' | b'$' | b'%' | b'&' | b'\'' | b'*' | b'+' | b'-' | b'.'
+        | b'^' | b'_' | b'`' | b'|' | b'~'
+        | b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z'
+    )
+}
+
 pub fn write_header(dest: &mut Vec<u8>, name: &str, value: &str) -> HeaderValuePosition {
+    validate_header_name(name);
+    validate_header_value(value);
     dest.extend_from_slice(name.as_bytes());
     dest.extend_from_slice(": ".as_bytes());
     let start = dest.len();
