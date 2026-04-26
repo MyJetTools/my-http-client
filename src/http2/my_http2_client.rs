@@ -128,13 +128,41 @@ impl<
         headers: hyper::HeaderMap,
         request_timeout: Duration,
     ) -> Result<hyper_util::rt::TokioIo<hyper::upgrade::Upgraded>, MyHttpClientError> {
-        self.connect().await?;
-
         let authority = self
             .connector
             .get_remote_endpoint()
             .get_host_port()
             .to_string();
+
+        self.do_extended_connect_inner(&authority, path, headers, request_timeout)
+            .await
+    }
+
+    /// Extended CONNECT for Unix Domain Socket transports.
+    ///
+    /// `:authority` over UDS is just metadata in the h2 HEADERS frame — actual routing
+    /// is already done by the UDS connect. The connector's `host_port` is a filesystem
+    /// path which produces an empty `:authority` (`http:///path/...`), and hyper's
+    /// CONNECT validator rejects that with "invalid format". This method substitutes
+    /// `localhost` as a placeholder authority.
+    pub async fn do_extended_connect_unix(
+        &self,
+        path: &str,
+        headers: hyper::HeaderMap,
+        request_timeout: Duration,
+    ) -> Result<hyper_util::rt::TokioIo<hyper::upgrade::Upgraded>, MyHttpClientError> {
+        self.do_extended_connect_inner("localhost", path, headers, request_timeout)
+            .await
+    }
+
+    async fn do_extended_connect_inner(
+        &self,
+        authority: &str,
+        path: &str,
+        headers: hyper::HeaderMap,
+        request_timeout: Duration,
+    ) -> Result<hyper_util::rt::TokioIo<hyper::upgrade::Upgraded>, MyHttpClientError> {
+        self.connect().await?;
 
         let mut req = hyper::Request::builder()
             .method(hyper::Method::CONNECT)
