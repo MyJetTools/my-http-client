@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper::client::conn::http2::SendRequest;
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 
 use crate::MyHttpClientError;
 
@@ -16,10 +16,22 @@ pub async fn wrap_http2_endpoint<
     remote_host: &str,
     inner: Arc<MyHttp2ClientInner>,
     connection_id: u64,
+    keep_alive: Option<(Duration, Duration)>,
 ) -> Result<SendRequest<Full<Bytes>>, MyHttpClientError> {
     let io = TokioIo::new(stream);
 
-    let handshake_result = hyper::client::conn::http2::handshake(TokioExecutor::new(), io).await;
+    let mut builder = hyper::client::conn::http2::Builder::new(TokioExecutor::new());
+
+    if let Some((interval, timeout)) = keep_alive {
+        // hyper panics inside handshake if keep-alive is enabled without a timer
+        builder.timer(TokioTimer::new());
+        builder.keep_alive_interval(interval);
+        builder.keep_alive_timeout(timeout);
+        // Idle connections are exactly the ones a pool needs probed
+        builder.keep_alive_while_idle(true);
+    }
+
+    let handshake_result = builder.handshake(io).await;
 
     match handshake_result {
         Ok((mut sender, conn)) => {

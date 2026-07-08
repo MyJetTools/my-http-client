@@ -104,30 +104,6 @@ impl<'s> Iterator for MyHttpClientHeadersBuilderIterator<'s> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::MyHttpClientHeadersBuilder;
-
-    #[test]
-    fn test_iterators() {
-        let mut headers = MyHttpClientHeadersBuilder::new();
-
-        headers.add_header("Content-Type", "text/plain");
-        headers.add_header("Content-Length", "123");
-
-        let mut iter = headers.iter();
-        let (name, value) = iter.next().unwrap();
-        assert_eq!(name, "Content-Type");
-        assert_eq!(value, "text/plain");
-
-        let (name, value) = iter.next().unwrap();
-        assert_eq!(name, "Content-Length");
-        assert_eq!(value, "123");
-
-        assert!(iter.next().is_none());
-    }
-}
-
 pub fn validate_header_name(name: &str) {
     if name.is_empty() {
         panic!("HTTP header name must not be empty");
@@ -169,4 +145,28 @@ pub fn write_header(dest: &mut Vec<u8>, name: &str, value: &str) -> HeaderValueP
     let end = dest.len();
     dest.extend_from_slice(crate::CL_CR);
     HeaderValuePosition { start, end }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MyHttpClientHeadersBuilder;
+
+    #[test]
+    fn test_iterators() {
+        let mut headers = MyHttpClientHeadersBuilder::new();
+
+        headers.add_header("Content-Type", "text/plain");
+        headers.add_header("Content-Length", "123");
+
+        let mut iter = headers.iter();
+        let (name, value) = iter.next().unwrap();
+        assert_eq!(name, "Content-Type");
+        assert_eq!(value, "text/plain");
+
+        let (name, value) = iter.next().unwrap();
+        assert_eq!(name, "Content-Length");
+        assert_eq!(value, "123");
+
+        assert!(iter.next().is_none());
+    }
 }

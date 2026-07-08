@@ -129,9 +129,9 @@ impl MyHttpHyperClientInner {
         let mut state = self.state.lock().await;
 
         match &mut *state {
-            MyHttpHyperConnectionState::Disconnected => {
-                panic!("Http connection is disconnected");
-            }
+            // The peer can close the connection between sending 101 and this call,
+            // so a disconnected/disposed state is a normal error, not a panic
+            MyHttpHyperConnectionState::Disconnected => Err(MyHttpClientError::Disconnected),
             MyHttpHyperConnectionState::Connected {
                 current_connection_id: _,
                 connected: _,
@@ -144,9 +144,7 @@ impl MyHttpHyperClientInner {
 
                 Ok(())
             }
-            MyHttpHyperConnectionState::Disposed => {
-                panic!("Attempt to upgrade http client to websocket in disposed state");
-            }
+            MyHttpHyperConnectionState::Disposed => Err(MyHttpClientError::Disposed),
         }
     }
 
@@ -170,6 +168,23 @@ impl MyHttpHyperClientInner {
 
     pub async fn force_disconnect(&self) {
         let mut state = self.state.lock().await;
+
+        match &*state {
+            MyHttpHyperConnectionState::Connected { .. } => {
+                if let Some(metrics) = self.metrics.as_ref() {
+                    metrics.disconnected(self.name.as_str());
+                }
+            }
+            MyHttpHyperConnectionState::Disconnected => {
+                return;
+            }
+            // Disposed is a terminal state - a forced disconnect must not resurrect
+            // the client back into a connectable one
+            MyHttpHyperConnectionState::Disposed => {
+                return;
+            }
+        }
+
         *state = MyHttpHyperConnectionState::Disconnected;
     }
 }

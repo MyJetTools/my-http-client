@@ -22,6 +22,7 @@ pub struct MyHttp2Client<
     inner: Arc<MyHttp2ClientInner>,
     connect_timeout: Duration,
     connection_id: AtomicU64,
+    keep_alive: Option<(Duration, Duration)>,
 }
 
 impl<
@@ -40,6 +41,7 @@ impl<
             stream: PhantomData,
             connect_timeout: Duration::from_secs(5),
             connection_id: AtomicU64::new(0),
+            keep_alive: None,
         }
     }
 
@@ -57,6 +59,7 @@ impl<
             stream: PhantomData,
             connect_timeout: Duration::from_secs(5),
             connection_id: AtomicU64::new(0),
+            keep_alive: None,
         }
     }
 
@@ -64,11 +67,28 @@ impl<
         self.connect_timeout = connection_timeout;
     }
 
+    /// Enables h2 keep-alive pings: a PING frame is sent every `interval`, and if the
+    /// peer does not answer within `timeout` the connection is closed, which also
+    /// resets [`Self::is_alive`]. Must be configured before the client is shared.
+    pub fn set_keep_alive(&mut self, interval: Duration, timeout: Duration) {
+        self.keep_alive = Some((interval, timeout));
+    }
+
+    /// Lock-free check whether the client holds an established connection right now.
+    /// `false` does not mean the client is unusable: it connects lazily, so this is
+    /// `false` before the first request and becomes `true` again after a reconnect.
+    /// Without [`Self::set_keep_alive`] a silently dead peer (no FIN/RST) is only
+    /// detected when a request fails, so the flag can stay stale-`true` until then.
+    pub fn is_alive(&self) -> bool {
+        self.inner.is_alive()
+    }
+
     pub async fn do_request(
         &self,
         req: hyper::Request<Full<Bytes>>,
         request_timeout: Duration,
     ) -> Result<hyper::Response<BoxBody<Bytes, String>>, MyHttpClientError> {
+        let request_is_idempotent = req.method().is_idempotent();
         let mut retry_no = 0;
         loop {
             let err = match self.inner.send_payload(&req, request_timeout).await {
@@ -80,36 +100,53 @@ impl<
 
             match err {
                 SendHyperPayloadError::Disconnected => {
+                    // The request never reached the wire, so reconnecting and retrying
+                    // is safe for any method
+                    if retry_no > 3 {
+                        return Err(MyHttpClientError::Disconnected);
+                    }
+                    retry_no += 1;
                     self.connect().await?;
                 }
                 SendHyperPayloadError::RequestTimeout(duration) => {
-                    if retry_no > 3 {
-                        return Err(MyHttpClientError::RequestTimeout(duration));
-                    }
-
-                    self.inner.force_disconnect().await;
-                    self.connect().await?;
-                    retry_no += 1;
-                    continue;
+                    // A timeout is a slow response, not a dead connection. Replaying
+                    // piles more load on a struggling upstream and can execute a
+                    // non-idempotent request twice; dead connections are handled by
+                    // keep-alive pings and the consecutive-timeouts limit in send_payload
+                    return Err(MyHttpClientError::RequestTimeout(duration));
                 }
                 SendHyperPayloadError::HyperError { connected, err } => {
-                    if err.is_canceled() {
-                        let now = DateTimeAsMicroseconds::now();
-
-                        if now.duration_since(connected).as_positive_or_zero() < HYPER_INIT_TIMEOUT
-                        {
-                            tokio::time::sleep(Duration::from_millis(50)).await;
-                            continue;
-                        }
-                    }
-
+                    // send_payload has already disconnected this connection by id,
+                    // so no force_disconnect here: it would race with a newer
+                    // connection created by a concurrent request
                     if retry_no > 3 {
                         return Err(MyHttpClientError::CanNotExecuteRequest(err.to_string()));
                     }
 
-                    retry_no += 1;
+                    if err.is_canceled() {
+                        // Canceled means hyper never dispatched the request to an h2
+                        // stream, so retrying is safe for any method. send_payload has
+                        // already dropped the connection; if it died right after the
+                        // handshake, pace the redial with a short sleep
+                        retry_no += 1;
 
-                    self.inner.force_disconnect().await;
+                        let now = DateTimeAsMicroseconds::now();
+                        if now.duration_since(connected).as_positive_or_zero() < HYPER_INIT_TIMEOUT
+                        {
+                            tokio::time::sleep(Duration::from_millis(50)).await;
+                        }
+
+                        self.connect().await?;
+                        continue;
+                    }
+
+                    // Any other error: the request may have reached the upstream, so
+                    // only idempotent requests are safe to replay
+                    if !request_is_idempotent {
+                        return Err(MyHttpClientError::CanNotExecuteRequest(err.to_string()));
+                    }
+
+                    retry_no += 1;
                     self.connect().await?;
                 }
                 SendHyperPayloadError::Disposed => {
@@ -196,7 +233,13 @@ impl<
 
         let resp = match resp_result {
             Err(_) => {
-                self.inner.disconnect(current_connection_id).await;
+                // Dropping the timed out send_fut cancels only the CONNECT stream
+                // (RST_STREAM); one slow websocket handshake must not tear down the
+                // connection under other multiplexed streams. Dead connections are
+                // still caught by the same consecutive-timeouts policy as do_request
+                self.inner
+                    .register_request_timeout(current_connection_id)
+                    .await;
                 return Err(MyHttpClientError::RequestTimeout(request_timeout));
             }
             Ok(Err(err)) => {
@@ -205,6 +248,12 @@ impl<
             }
             Ok(Ok(resp)) => resp,
         };
+
+        // Any completed CONNECT round trip proves the connection alive - reset the
+        // consecutive-timeouts budget the same way send_payload does on success
+        self.inner
+            .consecutive_timeouts
+            .store(0, std::sync::atomic::Ordering::Relaxed);
 
         if !resp.status().is_success() {
             return Err(MyHttpClientError::CanNotExecuteRequest(format!(
@@ -224,14 +273,19 @@ impl<
     }
 
     pub async fn connect(&self) -> Result<(), MyHttpClientError> {
-        let connection_id = self
-            .connection_id
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let mut state = self.inner.state.lock().await;
 
         if state.is_connected() {
             return Ok(());
         }
+
+        // Incremented under the state lock, past the early return, so no-op
+        // connect() calls do not advance the counter; +1 mirrors the http1_hyper
+        // client where the counter must equal the id stored in state
+        let connection_id = self
+            .connection_id
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
 
         let feature = self.connector.connect();
 
@@ -254,6 +308,7 @@ impl<
             remote_host_port.as_str(),
             self.inner.clone(),
             connection_id,
+            self.keep_alive,
         )
         .await?;
 
@@ -262,6 +317,13 @@ impl<
             send_request,
             current_connection_id: connection_id,
         };
+
+        self.inner
+            .is_alive
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.inner
+            .consecutive_timeouts
+            .store(0, std::sync::atomic::Ordering::Relaxed);
 
         if let Some(metrics) = self.inner.metrics.as_ref() {
             metrics.connected(&self.inner.name);
@@ -277,11 +339,14 @@ impl<
     > Drop for MyHttp2Client<TStream, TConnector>
 {
     fn drop(&mut self) {
-        let inner = self.inner.clone();
-
-        tokio::spawn(async move {
-            inner.dispose().await;
-        });
+        // Drop may run outside a tokio runtime (e.g. during shutdown); tokio::spawn
+        // would panic there, and a panic while unwinding aborts the process
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let inner = self.inner.clone();
+            handle.spawn(async move {
+                inner.dispose().await;
+            });
+        }
     }
 }
 

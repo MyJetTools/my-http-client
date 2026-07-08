@@ -97,6 +97,7 @@ impl<
         req: hyper::Request<Full<Bytes>>,
         request_timeout: Duration,
     ) -> Result<HyperHttpResponse, MyHttpClientError> {
+        let request_is_idempotent = req.method().is_idempotent();
         let mut retry_no = 0;
         loop {
             let err = match self.inner.send_payload(&req, request_timeout).await {
@@ -106,36 +107,56 @@ impl<
 
             match err {
                 SendHyperPayloadError::Disconnected => {
+                    // The request never reached the wire, so reconnecting and retrying
+                    // is safe for any method
+                    if retry_no > 3 {
+                        return Err(MyHttpClientError::Disconnected);
+                    }
+                    retry_no += 1;
                     self.connect().await?;
                 }
                 SendHyperPayloadError::RequestTimeout(duration) => {
-                    if retry_no > 3 {
+                    // The connection is already dropped by send_payload: an HTTP/1.1
+                    // connection with an unread response pending can not be reused.
+                    // The request may have reached the upstream though, so only
+                    // idempotent requests are safe to replay
+                    if !request_is_idempotent || retry_no > 3 {
                         return Err(MyHttpClientError::RequestTimeout(duration));
                     }
 
-                    self.inner.force_disconnect().await;
                     self.connect().await?;
                     retry_no += 1;
                     continue;
                 }
                 SendHyperPayloadError::HyperError { connected, err } => {
-                    if err.is_canceled() {
-                        let now = DateTimeAsMicroseconds::now();
-
-                        if now.duration_since(connected).as_positive_or_zero() < HYPER_INIT_TIMEOUT
-                        {
-                            tokio::time::sleep(Duration::from_millis(50)).await;
-                            continue;
-                        }
-                    }
-
                     if retry_no > 3 {
                         return Err(MyHttpClientError::CanNotExecuteRequest(err.to_string()));
                     }
 
-                    retry_no += 1;
+                    if err.is_canceled() {
+                        // Canceled means hyper never dispatched the request, so
+                        // retrying is safe for any method. send_payload has already
+                        // dropped the connection; if it died right after the
+                        // handshake, pace the redial with a short sleep
+                        retry_no += 1;
 
-                    self.inner.force_disconnect().await;
+                        let now = DateTimeAsMicroseconds::now();
+                        if now.duration_since(connected).as_positive_or_zero() < HYPER_INIT_TIMEOUT
+                        {
+                            tokio::time::sleep(Duration::from_millis(50)).await;
+                        }
+
+                        self.connect().await?;
+                        continue;
+                    }
+
+                    // Any other error: the request may have reached the upstream, so
+                    // only idempotent requests are safe to replay
+                    if !request_is_idempotent {
+                        return Err(MyHttpClientError::CanNotExecuteRequest(err.to_string()));
+                    }
+
+                    retry_no += 1;
                     self.connect().await?;
                 }
                 SendHyperPayloadError::Disposed => {
@@ -149,14 +170,21 @@ impl<
     }
 
     pub async fn connect(&self) -> Result<(), MyHttpClientError> {
-        let connection_id = self
-            .connection_id
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let mut state = self.inner.state.lock().await;
 
         if state.is_connected() {
             return Ok(());
         }
+
+        // fetch_add returns the previous value; +1 keeps the counter equal to the id
+        // stored in state, so MyHttpClientDisconnect::disconnect() (which loads the
+        // counter) matches current_connection_id instead of always no-oping on the
+        // off-by-one. Incremented under the state lock, past the early return, so
+        // no-op connect() calls do not advance it.
+        let connection_id = self
+            .connection_id
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
 
         let feature = self.connector.connect();
 
@@ -166,7 +194,7 @@ impl<
 
         if connect_result.is_err() {
             return Err(MyHttpClientError::CanNotConnectToRemoteHost(format!(
-                "Can not connect to Http2 remote endpoint: '{}' Timeout: {:?}",
+                "Can not connect to Http1 remote endpoint: '{}' Timeout: {:?}",
                 remote_host_port.as_str(),
                 self.connect_timeout
             )));
@@ -203,10 +231,14 @@ impl<
     > Drop for MyHttpHyperClient<TStream, TConnector>
 {
     fn drop(&mut self) {
-        let inner = self.inner.clone();
-        tokio::spawn(async move {
-            inner.dispose().await;
-        });
+        // Drop may run outside a tokio runtime (e.g. during shutdown); tokio::spawn
+        // would panic there, and a panic while unwinding aborts the process
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let inner = self.inner.clone();
+            handle.spawn(async move {
+                inner.dispose().await;
+            });
+        }
     }
 }
 
@@ -233,11 +265,10 @@ impl<
         tokio::spawn(async move { inner.disconnect(connection_id).await });
     }
     fn web_socket_disconnect(&self) {
-        let inner = self.inner.clone();
-        let connection_id = self
-            .connection_id
-            .load(std::sync::atomic::Ordering::Relaxed);
-        tokio::spawn(async move { inner.disconnect(connection_id).await });
+        // The connection that hosted the websocket is already released: hyper's
+        // conn.with_upgrades() future resolves at the 101 upgrade, and the task in
+        // wrap_http1_endpoint calls inner.disconnect for that id. Disconnecting by
+        // the live counter here could only tear down a newer, unrelated connection.
     }
     fn get_connection_id(&self) -> u64 {
         self.connection_id

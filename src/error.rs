@@ -17,7 +17,7 @@ impl MyHttpClientError {
         matches!(self, MyHttpClientError::UpgradedToWebSocket)
     }
 
-    pub fn is_retirable(&self) -> bool {
+    pub fn is_retryable(&self) -> bool {
         matches!(self, MyHttpClientError::Disconnected)
     }
 }

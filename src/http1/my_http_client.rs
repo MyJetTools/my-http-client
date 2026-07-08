@@ -217,7 +217,7 @@ impl<
                 Err(err) => err,
             };
 
-            if err.is_retirable() {
+            if err.is_retryable() {
                 self.connect().await?;
                 continue;
             }
@@ -270,11 +270,14 @@ impl<
     > Drop for MyHttpClient<TStream, TConnector>
 {
     fn drop(&mut self) {
-        let inner = self.inner.clone();
-
-        tokio::spawn(async move {
-            inner.dispose().await;
-        });
+        // Drop may run outside a tokio runtime (e.g. during shutdown); tokio::spawn
+        // would panic there, and a panic while unwinding aborts the process
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let inner = self.inner.clone();
+            handle.spawn(async move {
+                inner.dispose().await;
+            });
+        }
     }
 }
 
