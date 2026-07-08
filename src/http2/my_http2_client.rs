@@ -23,6 +23,9 @@ pub struct MyHttp2Client<
     connect_timeout: Duration,
     connection_id: AtomicU64,
     keep_alive: Option<(Duration, Duration)>,
+    // tokio::sync::Mutex by design: held across the dial (TCP connect + h2
+    // handshake) to serialize concurrent dialers, so parking_lot does not fit
+    connect_lock: tokio::sync::Mutex<()>,
 }
 
 impl<
@@ -42,6 +45,7 @@ impl<
             connect_timeout: Duration::from_secs(5),
             connection_id: AtomicU64::new(0),
             keep_alive: None,
+            connect_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -60,6 +64,7 @@ impl<
             connect_timeout: Duration::from_secs(5),
             connection_id: AtomicU64::new(0),
             keep_alive: None,
+            connect_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -85,13 +90,13 @@ impl<
 
     pub async fn do_request(
         &self,
-        req: hyper::Request<Full<Bytes>>,
+        req: &hyper::Request<Full<Bytes>>,
         request_timeout: Duration,
     ) -> Result<hyper::Response<BoxBody<Bytes, String>>, MyHttpClientError> {
         let request_is_idempotent = req.method().is_idempotent();
         let mut retry_no = 0;
         loop {
-            let err = match self.inner.send_payload(&req, request_timeout).await {
+            let err = match self.inner.send_payload(req, request_timeout).await {
                 Ok(response) => {
                     return Ok(response);
                 }
@@ -238,7 +243,7 @@ impl<
                 // connection under other multiplexed streams. Dead connections are
                 // still caught by the same consecutive-timeouts policy as do_request
                 self.inner
-                    .register_request_timeout(current_connection_id)
+                    .register_request_timeout(current_connection_id, request_timeout)
                     .await;
                 return Err(MyHttpClientError::RequestTimeout(request_timeout));
             }
@@ -273,44 +278,67 @@ impl<
     }
 
     pub async fn connect(&self) -> Result<(), MyHttpClientError> {
-        let mut state = self.inner.state.lock().await;
+        // Serializes dialers: a burst of failing requests produces one dial, not a
+        // thundering herd. The state lock is NOT held across the dial, so concurrent
+        // send_payload calls keep failing fast with Disconnected (and requests on a
+        // still-alive connection keep flowing) instead of queuing on state.lock()
+        // for up to connect_timeout.
+        let _dial_guard = self.connect_lock.lock().await;
 
-        if state.is_connected() {
-            return Ok(());
+        {
+            let state = self.inner.state.lock().await;
+            match &*state {
+                MyHttp2ConnectionState::Connected { .. } => return Ok(()),
+                MyHttp2ConnectionState::Disconnected => {}
+                MyHttp2ConnectionState::Disposed => return Err(MyHttpClientError::Disposed),
+            }
         }
 
-        // Incremented under the state lock, past the early return, so no-op
-        // connect() calls do not advance the counter; +1 mirrors the http1_hyper
+        // Incremented past the early return, so no-op connect() calls do not advance
+        // the counter; the dial guard makes this the only dialer, so the id stored
+        // in state below always matches the counter; +1 mirrors the http1_hyper
         // client where the counter must equal the id stored in state
         let connection_id = self
             .connection_id
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
             + 1;
 
-        let feature = self.connector.connect();
-
-        let connect_result = tokio::time::timeout(self.connect_timeout, feature).await;
-
         let remote_host_port = self.connector.get_remote_endpoint().get_host_port();
 
-        if connect_result.is_err() {
-            return Err(MyHttpClientError::CanNotConnectToRemoteHost(format!(
-                "Can not connect to Http2 remote endpoint: '{}' Timeout: {:?}",
+        // The timeout covers the whole dial including the h2 handshake: an upstream
+        // that accepts TCP but never answers SETTINGS must not hang connect() forever
+        let dial = async {
+            let stream = self.connector.connect().await?;
+
+            super::wrap_http2_endpoint::wrap_http2_endpoint(
+                stream,
                 remote_host_port.as_str(),
-                self.connect_timeout
-            )));
+                self.inner.clone(),
+                connection_id,
+                self.keep_alive,
+            )
+            .await
+        };
+
+        let send_request = match tokio::time::timeout(self.connect_timeout, dial).await {
+            Ok(dial_result) => dial_result?,
+            Err(_) => {
+                return Err(MyHttpClientError::CanNotConnectToRemoteHost(format!(
+                    "Can not connect to Http2 remote endpoint: '{}' Timeout: {:?}",
+                    remote_host_port.as_str(),
+                    self.connect_timeout
+                )));
+            }
+        };
+
+        let mut state = self.inner.state.lock().await;
+
+        // The client can be disposed while the dial was running without the state
+        // lock; dropping send_request ends the freshly spawned conn task, whose
+        // disconnect(connection_id) no-ops against the Disposed state
+        if let MyHttp2ConnectionState::Disposed = &*state {
+            return Err(MyHttpClientError::Disposed);
         }
-
-        let stream = connect_result.unwrap()?;
-
-        let send_request = super::wrap_http2_endpoint::wrap_http2_endpoint(
-            stream,
-            remote_host_port.as_str(),
-            self.inner.clone(),
-            connection_id,
-            self.keep_alive,
-        )
-        .await?;
 
         *state = MyHttp2ConnectionState::Connected {
             connected: DateTimeAsMicroseconds::now(),

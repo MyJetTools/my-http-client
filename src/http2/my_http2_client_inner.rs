@@ -1,5 +1,5 @@
 use std::{
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     time::Duration,
 };
 
@@ -12,9 +12,9 @@ use tokio::sync::Mutex;
 use crate::hyper::*;
 
 /// A single timed out request is a slow stream, not a dead connection. But this many
-/// timeouts in a row with no success in between means the connection itself is likely
-/// dead (e.g. black-holed TCP while keep-alive pings are not configured), so it gets
-/// dropped to let the next request reconnect.
+/// timeout rounds in a row with no success in between means the connection itself is
+/// likely dead (e.g. black-holed TCP while keep-alive pings are not configured), so it
+/// gets dropped to let the next request reconnect.
 const MAX_CONSECUTIVE_TIMEOUTS: usize = 3;
 
 pub enum MyHttp2ConnectionState {
@@ -40,6 +40,13 @@ pub struct MyHttp2ClientInner {
     pub metrics: Option<std::sync::Arc<dyn MyHttpHyperClientMetrics + Send + Sync + 'static>>,
     pub(crate) is_alive: AtomicBool,
     pub(crate) consecutive_timeouts: AtomicUsize,
+    /// Monotonic anchor for round pacing: wall clock would let an NTP step stall
+    /// dead-connection detection (backwards) or split one burst of concurrent
+    /// timeouts into several rounds (forwards)
+    created: std::time::Instant,
+    /// Micros since `created` when the last counted timeout round started; written
+    /// only under the state lock
+    last_counted_timeout_micros: AtomicU64,
 }
 
 impl MyHttp2ClientInner {
@@ -59,6 +66,8 @@ impl MyHttp2ClientInner {
             metrics,
             is_alive: AtomicBool::new(false),
             consecutive_timeouts: AtomicUsize::new(0),
+            created: std::time::Instant::now(),
+            last_counted_timeout_micros: AtomicU64::new(0),
         }
     }
 
@@ -100,7 +109,8 @@ impl MyHttp2ClientInner {
             // Dropping the timed out send_request future cancels only its own h2 stream
             // (RST_STREAM), so the connection stays available to other multiplexed
             // streams instead of being torn down because of one slow response.
-            self.register_request_timeout(current_connection_id).await;
+            self.register_request_timeout(current_connection_id, request_timeout)
+                .await;
             return Err(SendHyperPayloadError::RequestTimeout(request_timeout));
         }
 
@@ -119,10 +129,19 @@ impl MyHttp2ClientInner {
     }
 
     /// Counts a request timeout against the connection it happened on and drops the
-    /// connection after MAX_CONSECUTIVE_TIMEOUTS in a row. Checked under the state
-    /// lock so a stale timeout from a previous connection never counts against (or
-    /// disconnects) the current one.
-    pub(crate) async fn register_request_timeout(&self, connection_id: u64) {
+    /// connection after MAX_CONSECUTIVE_TIMEOUTS timeout rounds in a row. Rounds, not
+    /// streams: N parallel requests timing out together prove no more deadness than
+    /// one, so they collapse into a single round — otherwise 3 concurrent slow
+    /// responses would tear down a healthy connection under all its other multiplexed
+    /// streams. A new round is counted only after `request_timeout` has elapsed since
+    /// the last counted one (or after a success reset the budget to zero). Checked
+    /// under the state lock so a stale timeout from a previous connection never
+    /// counts against (or disconnects) the current one.
+    pub(crate) async fn register_request_timeout(
+        &self,
+        connection_id: u64,
+        request_timeout: Duration,
+    ) {
         let mut state = self.state.lock().await;
 
         match &*state {
@@ -141,6 +160,19 @@ impl MyHttp2ClientInner {
                 return;
             }
         }
+
+        let now_micros = self.created.elapsed().as_micros() as u64;
+
+        if self.consecutive_timeouts.load(Ordering::Relaxed) > 0 {
+            let since_last_counted =
+                now_micros - self.last_counted_timeout_micros.load(Ordering::Relaxed);
+            if since_last_counted < request_timeout.as_micros() as u64 {
+                return;
+            }
+        }
+
+        self.last_counted_timeout_micros
+            .store(now_micros, Ordering::Relaxed);
 
         let timeouts = self.consecutive_timeouts.fetch_add(1, Ordering::Relaxed) + 1;
         if timeouts < MAX_CONSECUTIVE_TIMEOUTS {
