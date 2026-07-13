@@ -28,3 +28,6 @@ rust-extensions = { tag = "0.1.5", git = "https://github.com/MyJetTools/rust-ext
 ] }
 
 parking_lot = "*"
+
+[dev-dependencies]
+tokio = { version = "*", features = ["macros", "rt", "rt-multi-thread", "io-util"] }

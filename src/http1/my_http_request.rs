@@ -73,6 +73,19 @@ impl MyHttpRequest {
         writer.extend_from_slice(crate::CL_CR);
         writer.extend_from_slice(&self.body);
     }
+
+    /// Extracts the HTTP method from the serialized request line (the first
+    /// whitespace-delimited token). Used by the read loop to apply RFC 9112
+    /// §6.3 response-body framing (HEAD / CONNECT never carry a body).
+    pub fn get_method(&self) -> Method {
+        let end = self
+            .headers
+            .iter()
+            .position(|b| *b == b' ')
+            .unwrap_or(self.headers.len());
+
+        Method::from_bytes(&self.headers[..end]).unwrap_or(Method::GET)
+    }
 }
 
 fn create_headers(method: Method, path_and_query: &str, version: Version) -> String {

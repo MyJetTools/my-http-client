@@ -155,7 +155,7 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             let mut task = TaskCompletion::new();
             let awaiter = task.get_awaiter();
 
-            self.queue_of_requests.push(task);
+            self.queue_of_requests.push(req.get_method(), task);
 
             match connection_context.queue_to_deliver.as_mut() {
                 Some(vec) => {
@@ -207,6 +207,17 @@ impl<TStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'stat
             WritePartState::Disconnected => Err(MyHttpClientError::Disconnected),
             WritePartState::Disposed => Err(MyHttpClientError::Disposed),
         }
+    }
+
+    /// Peeks the method of the request whose response is currently being read
+    /// (the front of the FIFO queue) without popping it. The read loop needs
+    /// the method to apply RFC 9112 §6.3 body framing before the body is read.
+    pub fn peek_request_method(&self, connection_id: u64) -> Option<http::Method> {
+        if self.connection_id.load(Ordering::Acquire) != connection_id {
+            return None;
+        }
+
+        self.queue_of_requests.peek_front_method()
     }
 
     pub fn pop_request(

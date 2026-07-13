@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use bytes::Bytes;
+use http::Method;
 use http_body_util::combinators::BoxBody;
 use parking_lot::Mutex;
 use rust_extensions::{TaskCompletion, TaskCompletionAwaiter};
@@ -41,8 +42,16 @@ impl<TStream: tokio::io::AsyncRead + Send + Sync + 'static> HttpTask<TStream> {
     }
 }
 
+/// A queued request awaiting its response. The `method` is retained so the read
+/// loop can apply RFC 9112 §6.3 response-body framing (which depends on the
+/// request method) before the request is popped.
+struct QueuedRequest<TStream: tokio::io::AsyncRead + Send + Sync + 'static> {
+    method: Method,
+    task: HttpAwaitingTask<TStream>,
+}
+
 pub struct QueueOfRequests<TStream: tokio::io::AsyncRead + Send + Sync + 'static> {
-    queue: Mutex<VecDeque<HttpAwaitingTask<TStream>>>,
+    queue: Mutex<VecDeque<QueuedRequest<TStream>>>,
 }
 
 impl<TStream: tokio::io::AsyncRead + Send + Sync + 'static> Default for QueueOfRequests<TStream> {
@@ -58,18 +67,26 @@ impl<TStream: tokio::io::AsyncRead + Send + Sync + 'static> QueueOfRequests<TStr
         }
     }
 
-    pub fn push(&self, task: HttpAwaitingTask<TStream>) {
-        self.queue.lock().push_back(task);
+    pub fn push(&self, method: Method, task: HttpAwaitingTask<TStream>) {
+        self.queue.lock().push_back(QueuedRequest { method, task });
     }
 
     pub fn pop(&self) -> Option<HttpAwaitingTask<TStream>> {
-        self.queue.lock().pop_front()
+        self.queue.lock().pop_front().map(|itm| itm.task)
+    }
+
+    /// Returns the method of the request at the front of the queue (the one
+    /// whose response is being read next) without removing it. Responses are
+    /// delivered in request order, so the front entry always matches the
+    /// response currently on the wire.
+    pub fn peek_front_method(&self) -> Option<Method> {
+        self.queue.lock().front().map(|itm| itm.method.clone())
     }
 
     pub fn notify_connection_lost(&self) {
         let mut queue = self.queue.lock();
-        while let Some(mut task) = queue.pop_front() {
-            let _ = task.try_set_error(MyHttpClientError::Disconnected);
+        while let Some(mut itm) = queue.pop_front() {
+            let _ = itm.task.try_set_error(MyHttpClientError::Disconnected);
         }
     }
 }

@@ -39,11 +39,19 @@ pub use read_with_timeout::*;
 
 pub mod into_hyper_request;
 
+#[cfg(test)]
+mod response_framing_tests;
+
 const CONTENT_LENGTH_HEADER_NAME: &str = "content-length";
 
 pub const MAX_RESPONSE_BODY_SIZE: usize = 100 * 1024 * 1024;
 pub const MAX_CHUNK_SIZE: usize = 16 * 1024 * 1024;
 pub const MAX_RESPONSE_HEADERS_COUNT: usize = 256;
+
+/// Upper bound on consecutive interim (1xx) responses accepted before a final
+/// response, guarding against a server that pins the read loop with an endless
+/// stream of 1xx messages.
+pub const MAX_INTERIM_RESPONSES: usize = 32;
 
 /// Case-insensitive search for an HTTP header in a serialized request buffer.
 /// Skips the request line; matches lines starting with `\r\n<name>` followed by `:` (or OWS+`:`).

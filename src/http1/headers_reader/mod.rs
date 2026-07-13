@@ -12,6 +12,7 @@ pub async fn read_headers<TStream: tokio::io::AsyncRead>(
     tcp_buffer: &mut TcpBuffer,
     read_timeout: Duration,
     print_input_http_stream: bool,
+    request_method: Option<http::Method>,
 ) -> Result<BodyReader, HttpParseError> {
     let (status_code, version) = super::read_with_timeout::read_until_crlf(
         read_stream,
@@ -63,18 +64,61 @@ pub async fn read_headers<TStream: tokio::io::AsyncRead>(
         }
     }
 
+    // RFC 9112 §6.3 body-length precedence. A `WebSocketUpgrade` (a 101 with an
+    // `Upgrade: websocket` header) is handled first: it is a 1xx status but must
+    // route to the upgrade path rather than being treated as a bodyless message.
+    let body_expected = response_has_body(request_method.as_ref(), status_code);
+
     match detected_body_size {
-        DetectedBodySize::Unknown => Ok(BodyReader::LengthBased {
+        DetectedBodySize::WebSocketUpgrade => Ok(BodyReader::WebSocketUpgrade(
+            WebSocketUpgradeBuilder::new(builder),
+        )),
+        // A non-websocket 1xx is an interim response, not the final one. It must
+        // be skipped without completing the request (RFC 9110 §15.2); the read
+        // loop keeps reading for the real >= 200 response. Checked before the
+        // bodyless arm below so a 1xx is *skipped* rather than *delivered empty*.
+        _ if status_code.is_informational() => Ok(BodyReader::Interim),
+        // HEAD / 204 / 304 / a 2xx to CONNECT never carry a body, regardless of
+        // any Content-Length or Transfer-Encoding header.
+        _ if !body_expected => Ok(BodyReader::LengthBased {
             builder,
             body_size: 0,
         }),
-        DetectedBodySize::Known(body_size) => Ok(BodyReader::LengthBased { builder, body_size }),
         DetectedBodySize::Chunked => {
             let (sender, response) = create_chunked_body_response(builder);
             Ok(BodyReader::Chunked { response, sender })
         }
-        DetectedBodySize::WebSocketUpgrade => Ok(BodyReader::WebSocketUpgrade(
-            WebSocketUpgradeBuilder::new(builder),
-        )),
+        DetectedBodySize::Known(body_size) => Ok(BodyReader::LengthBased { builder, body_size }),
+        // No length signal on a response that is allowed to have a body: the
+        // body is delimited by connection close (read until EOF).
+        DetectedBodySize::Unknown => Ok(BodyReader::UntilClose { builder }),
     }
+}
+
+/// Determines whether a response is allowed to carry a message body, per the
+/// RFC 9112 §6.3 precedence rules that depend on the request method and the
+/// response status code.
+fn response_has_body(request_method: Option<&http::Method>, status: http::StatusCode) -> bool {
+    // 1xx (informational), 204 (No Content) and 304 (Not Modified) never carry
+    // a body, whatever headers say.
+    if status.is_informational()
+        || status == http::StatusCode::NO_CONTENT
+        || status == http::StatusCode::NOT_MODIFIED
+    {
+        return false;
+    }
+
+    if let Some(method) = request_method {
+        // A response to HEAD is identical to the GET response but with no body.
+        if *method == http::Method::HEAD {
+            return false;
+        }
+
+        // A 2xx response to CONNECT establishes a tunnel; no body follows.
+        if *method == http::Method::CONNECT && status.is_success() {
+            return false;
+        }
+    }
+
+    true
 }
